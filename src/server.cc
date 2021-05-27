@@ -17,6 +17,7 @@
 #include "redis_connection.h"
 #include "compaction_checker.h"
 #include "config.h"
+#include "semisync_master.h"
 
 std::atomic<int>Server::unix_time_ = {0};
 
@@ -665,6 +666,19 @@ void Server::GetReplicationInfo(std::string *info) {
   *info = string_stream.str();
 }
 
+void Server::GetReplicationSyncInfo(std::string *info) {
+  auto& repl_semisync = ReplSemiSyncMaster::GetInstance();
+  std::ostringstream string_stream;
+  bool semi_sync_enabled = repl_semisync.GetSemiSyncEnabled();
+  string_stream << "# Sync\r\n";
+  string_stream << "type:" << (semi_sync_enabled && repl_semisync.IsOn() ? "semi-sync" : "async") << "\r\n";
+  if (semi_sync_enabled) {
+    string_stream << "wait_for_slave_count:" <<
+      (repl_semisync.IsOn() ? config_->semi_sync_wait_for_slave_count : 0) << "\r\n";
+  }
+  *info = string_stream.str();
+}
+
 void Server::GetRoleInfo(std::string *info) {
   if (IsSlave()) {
     std::vector<std::string> roles;
@@ -800,6 +814,11 @@ void Server::GetInfo(const std::string &ns, const std::string &section, std::str
     std::string replication_info;
     GetReplicationInfo(&replication_info);
     string_stream << replication_info;
+  }
+  if (all || section == "sync") {
+    std::string sync_info;
+    GetReplicationSyncInfo(&sync_info);
+    string_stream << sync_info;
   }
   if (all || section == "cpu") {
     struct rusage self_ru;

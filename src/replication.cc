@@ -17,6 +17,50 @@
 #include "util.h"
 #include "status.h"
 #include "server.h"
+#include "semisync_master.h"
+
+thread_local bool REP_SEMI_SYNC_SLAVE = false;
+
+const std::unique_ptr<FeedSlaveHandler> FeedSlaveThread::handler_
+  = std::unique_ptr<FeedSlaveHandler>(new FeedSlaveHandler());
+
+const std::unique_ptr<FeedStatusHandler> FeedSlaveThread::handler2_
+  = std::unique_ptr<FeedStatusHandler>(new FeedStatusHandler());
+
+void FeedSlaveHandler::transmitStart(Observable subject, ObserverEvent const& event) {
+  if (REP_SEMI_SYNC_SLAVE) return;
+
+  REP_SEMI_SYNC_SLAVE = true;
+  const TransmitStartEvent* ev = dynamic_cast<const TransmitStartEvent*>(&event);
+
+  ReplSemiSyncMaster& repl_semisync = ReplSemiSyncMaster::GetInstance();
+  repl_semisync.AddSlave(ev->thread_ptr);
+
+  repl_semisync.HandleAck(ev->conn_fd, ev->thread_ptr->GetCurrentReplSeq());
+}
+
+void FeedSlaveHandler::beforeSend(Observable subject, ObserverEvent const& event) {}
+
+void FeedSlaveHandler::afterSend(Observable subject, ObserverEvent const& event) {
+  const AfterSendEvent* ev = dynamic_cast<const AfterSendEvent*>(&event);
+  ReplSemiSyncMaster::GetInstance().HandleAck(ev->conn_fd, ev->sequenceNumber);
+}
+
+void FeedSlaveHandler::transmitEnd(Observable subject, ObserverEvent const& event) {
+  if (!REP_SEMI_SYNC_SLAVE) return;
+
+  REP_SEMI_SYNC_SLAVE = false;
+  ReplSemiSyncMaster& repl_semisync = ReplSemiSyncMaster::GetInstance();
+  const TransmitEndEvent* ev = dynamic_cast<const TransmitEndEvent*>(&event);
+  repl_semisync.RemoveSlave(ev->thread_ptr);
+}
+
+void FeedStatusHandler::sync_status_change(Observable subject, ObserverEvent const& event) {
+  const SyncStatusChangeEvent* ev = dynamic_cast<const SyncStatusChangeEvent*>(&event);
+  ReplSemiSyncMaster& repl_semisync = ReplSemiSyncMaster::GetInstance();
+  repl_semisync.HandleAck(ev->conn_fd, ev->lastSequenceNumberEnd);
+}
+
 
 FeedSlaveThread::~FeedSlaveThread() {
   delete conn_;
@@ -34,9 +78,14 @@ Status FeedSlaveThread::Start() {
       sigaddset(&mask, SIGPIPE);
       pthread_sigmask(SIG_BLOCK, &mask, &omask);
       write(conn_->GetFD(), "+OK\r\n", 5);
+
+      TransmitStartEvent ev(conn_->GetFD(), this);
+      NotifyObservers(ev);
+
       this->loop();
     });
   } catch (const std::system_error &e) {
+    if (!IsStopped()) Stop();
     conn_ = nullptr;  // prevent connection was freed when failed to start the thread
     return Status(Status::NotOK, e.what());
   }
@@ -46,6 +95,24 @@ Status FeedSlaveThread::Start() {
 void FeedSlaveThread::Stop() {
   stop_ = true;
   LOG(WARNING) << "Slave thread was terminated, would stop feeding the slave: " << conn_->GetAddr();
+
+  TransmitEndEvent ev(this);
+  NotifyObservers(ev);
+}
+
+void FeedSlaveThread::Pause(const uint32_t& micro_time_out) {
+  std::unique_lock<std::mutex> lock(mutex_);
+  pause_ = true;
+  cv_.wait_for(lock, std::chrono::microseconds(micro_time_out));
+}
+
+void FeedSlaveThread::Wakeup() {
+  mutex_.lock();
+  if (pause_) {
+    cv_.notify_all();
+    pause_ = false;
+  }
+  mutex_.unlock();
 }
 
 void FeedSlaveThread::Join() {
@@ -76,7 +143,7 @@ void FeedSlaveThread::loop() {
       if (!srv_->storage_->WALHasNewData(next_repl_seq_)
           || !srv_->storage_->GetWALIter(next_repl_seq_, &iter_).IsOK()) {
         iter_ = nullptr;
-        usleep(yield_milliseconds);
+        Pause(yield_milliseconds);
         checkLivenessIfNeed();
         continue;
       }
@@ -107,8 +174,13 @@ void FeedSlaveThread::loop() {
       batch_list.clear();
     }
     next_repl_seq_ = batch.sequence + batch.writeBatchPtr->Count();
+
+    // notify
+    AfterSendEvent ev(conn_->GetFD(), batch.sequence);
+    NotifyObservers(ev);
+
     while (!IsStopped() && !srv_->storage_->WALHasNewData(next_repl_seq_)) {
-      usleep(yield_milliseconds);
+      Pause(yield_milliseconds);
       checkLivenessIfNeed();
     }
     iter_->Next();

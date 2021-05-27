@@ -329,6 +329,8 @@ add_executable(unittest
         tests/t_zset_test.cc
         tests/t_geo_test.cc
         tests/t_metadata_test.cc
+        tests/t_observer_test.cc
+        tests/t_semisync_master_test.cc
         tests/string_reply_test.cc
         tests/string_util_test.cc
         tests/rwlock_test.cc

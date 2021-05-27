@@ -16,6 +16,7 @@
 #include "cron.h"
 #include "server.h"
 #include "log_collector.h"
+#include "semisync_master.h"
 
 const char *kDefaultNamespace = "__namespace";
 configEnum compression_type_enum[] = {
@@ -99,6 +100,9 @@ Config::Config() {
       {"profiling-sample-commands", false, new StringField(&profiling_sample_commands_, "")},
       {"slowlog-max-len", false, new IntField(&slowlog_max_len, 128, 0, INT_MAX)},
       {"purge-backup-on-fullsync", false, new YesNoField(&purge_backup_on_fullsync, false)},
+      {"semi-sync-test", false, new YesNoField(&semi_sync_test, false)},
+      {"semi-sync-enable", false, new YesNoField(&semi_sync_enable, false)},
+      {"semi-sync-wait-for-slave-count", false, new IntField(&semi_sync_wait_for_slave_count, 1, 1, INT_MAX)},
       /* rocksdb options */
       {"rocksdb.compression", false, new EnumField(&RocksDB.compression, compression_type_enum, 0)},
       {"rocksdb.block_size", true, new IntField(&RocksDB.block_size, 4096, 0, INT_MAX)},
@@ -292,6 +296,30 @@ void Config::initFieldCallback() {
       {"rocksdb.max_write_buffer_number", set_cf_option_cb},
       {"rocksdb.level0_slowdown_writes_trigger", set_cf_option_cb},
       {"rocksdb.level0_stop_writes_trigger", set_cf_option_cb},
+      {"semi-sync-enable", [this](Server* srv, const std::string &k, const std::string& v)->Status {
+        if (!srv) return Status::OK();
+        if (!ReplSemiSyncMaster::GetInstance().InitDone()) return Status::OK();
+
+        int result;
+        if (semi_sync_enable)
+          result = ReplSemiSyncMaster::GetInstance().EnableMaster();
+        else
+          result = ReplSemiSyncMaster::GetInstance().DisableMaster();
+        if (result != 0)
+          return Status(Status::NotOK, "Failed to enable semi sync");
+        else
+          return Status::OK();
+      }},
+      {"semi-sync-wait-for-slave-count", [this](Server* srv, const std::string &k, const std::string& v)->Status {
+        if (!srv) return Status::OK();
+        if (!ReplSemiSyncMaster::GetInstance().InitDone()) return Status::OK();
+
+        auto set_result = ReplSemiSyncMaster::GetInstance().SetWaitSlaveCount(semi_sync_wait_for_slave_count);
+        if (set_result)
+          return Status::OK();
+        else
+          return Status(Status::NotOK, "Failed to set the semi sync slave count");
+      }},
   };
   for (const auto& iter : callbacks) {
     auto field_iter = fields_.find(iter.first);

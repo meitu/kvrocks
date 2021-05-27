@@ -14,6 +14,7 @@
 #include "status.h"
 #include "lock_manager.h"
 #include "config.h"
+#include "observer.h"
 
 enum ColumnFamilyID{
   kColumnFamilyIDDefault,
@@ -28,7 +29,24 @@ extern const char *kZSetScoreColumnFamilyName;
 extern const char *kMetadataColumnFamilyName;
 extern const char *kSubkeyColumnFamilyName;
 
-class Storage {
+class AfterCommitEvent : public ObserverEvent {
+ public:
+  explicit AfterCommitEvent(uint64_t commit_seq) : ObserverEvent(), sequenceNumber(commit_seq) {}
+  uint64_t sequenceNumber;
+};
+
+class StorageHandler : public EventHandler {
+ public:
+  StorageHandler() : EventHandler() {
+    registerEventHandler<AfterCommitEvent>(
+      std::bind(&StorageHandler::afterCommit, this, std::placeholders::_1, std::placeholders::_2));
+  }
+
+ private:
+  void afterCommit(Observable subject, ObserverEvent const& event);
+};
+
+class Storage : public Observable {
  public:
   explicit Storage(Config *config);
   ~Storage();
@@ -144,6 +162,8 @@ class Storage {
   int db_refs_ = 0;
   bool db_closing_ = true;
   bool db_in_retryable_io_error_ = false;
+
+  std::unique_ptr<StorageHandler> handler = std::unique_ptr<StorageHandler>(new StorageHandler());
 };
 
 }  // namespace Engine

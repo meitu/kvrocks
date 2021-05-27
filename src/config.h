@@ -91,6 +91,11 @@ struct Config{
   std::set<std::string> profiling_sample_commands;
   bool profiling_sample_all_commands = false;
 
+  // semi-sync
+  bool semi_sync_test = false;
+  bool semi_sync_enable = false;
+  int semi_sync_wait_for_slave_count = 1;
+
   struct {
     int block_size;
     bool cache_index_and_filter_blocks;
