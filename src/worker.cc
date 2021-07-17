@@ -77,7 +77,11 @@ void Worker::newConnection(evconnlistener *listener, evutil_socket_t fd,
     return;
   }
   event_base *base = evconnlistener_get_base(listener);
+#ifndef DISABLE_USE_PTHREADS
   auto evThreadSafeFlags = BEV_OPT_THREADSAFE | BEV_OPT_DEFER_CALLBACKS | BEV_OPT_UNLOCK_CALLBACKS;
+#else
+  auto evThreadSafeFlags = BEV_OPT_DEFER_CALLBACKS | BEV_OPT_UNLOCK_CALLBACKS;
+#endif
   bufferevent *bev = bufferevent_socket_new(base,
                                             fd,
                                             evThreadSafeFlags);

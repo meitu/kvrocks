@@ -1,5 +1,11 @@
 # kvrocks Makefile
-CXX= g++
+
+# NO_BUILD_DEPENDENCIES was used to build the homebrew binary
+# with brew installed dependencies, so we should use the clang
+# as well to compati with those dependencies.
+ifndef NO_BUILD_DEPENDENCIES
+CXX=g++
+endif
 CXXFLAGS= -O2 -std=c++11 -Wall -Wpedantic -Wsign-compare -Wreturn-type -fno-omit-frame-pointer -DNDEBUG=1 -Wno-unused-result
 LDFLAGS= -pthread -ldl
 FINAL_CXXFLAGS+= $(CXXFLAGS) $(DEBUG)
@@ -13,6 +19,11 @@ release_hdr := $(shell sh -c './mkreleasehdr.sh')
 detect_platform := $(shell sh -c '../build_detect_platform make_config.mk')
 include make_config.mk
 LDFLAGS+= $(PLATFORM_LDFLAGS)
+
+ifdef NO_BUILD_DEPENDENCIES
+FINAL_CXXFLAGS+= -I. -DDISABLE_USE_PTHREADS
+FINAL_LIBS+= -lsnappy -ljemalloc -lglog -levent -lrocksdb
+else
 EXTERNAL_LIBRARY_PATH= $(realpath ../external)
 GLOG_PATH= $(EXTERNAL_LIBRARY_PATH)/glog
 GLOG= $(GLOG_PATH)/.libs/libglog.a
@@ -30,6 +41,7 @@ FINAL_CXXFLAGS+= -I$(JEMALLOC_PATH)/include \
 				  -I$(GLOG_PATH)/src \
 				  -I.
 FINAL_LIBS+= $(GLOG) $(LIBEVENT) $(LIBEVENT_PTHREADS) $(JEMALLOC) $(ROCKSDB)
+endif
 
 SHARED_OBJS= cluster.o compact_filter.o config.o cron.o encoding.o event_listener.o lock_manager.o \
 			   log_collector.o redis_bitmap.o redis_bitmap_string.o redis_cmd.o redis_connection.o redis_db.o \
@@ -88,6 +100,10 @@ lint:
 	cd ..; ./cpplint.sh
 	cd ..; ./cppcheck.sh
 
+ifdef NO_BUILD_DEPENDENCIES
+$(PROG): $(KVROCKS_OBJS)
+	$(KVROCKS_LD) -o $(PROG) $(KVROCKS_OBJS) $(FINAL_LIBS) $(LDFLAGS)
+else
 $(PROG): $(GLOG) $(LIBEVENT) $(ROCKSDB) $(KVROCKS_OBJS)
 	$(KVROCKS_LD) -o $(PROG) $(KVROCKS_OBJS) $(FINAL_LIBS) $(LDFLAGS)
 	
@@ -109,6 +125,7 @@ $(JEMALLOC):
 	cd $(JEMALLOC_PATH); ./autogen.sh; \
 	   	./configure --enable-autogen --disable-libdl --enable-static --with-jemalloc-prefix=""; \
 		$(MAKE) -C $(JEMALLOC_PATH)/
+endif
 
 kvrocks2redis: $(PROG) $(KVROCKS2REDIS_OBJS)
 	$(KVROCKS_LD) -o kvrocks2redis $(KVROCKS2REDIS_OBJS) $(FINAL_LIBS) $(LDFLAGS)
@@ -128,10 +145,12 @@ clean:
 	- rm -rf $(K2RDIR)/*.o kvrocks2redis
 
 distclean: clean
+ifndef NO_BUILD_DEPENDENCIES
 	- make -C $(ROCKSDB_PATH)/ clean
 	- make -C $(LIBEVENT_PATH)/ clean
 	- make -C $(JEMALLOC_PATH)/ distclean
 	- make -C $(GLOG_PATH)/ distclean
+endif
 
 install: all
 	@mkdir -p $(INSTALL_DIR)

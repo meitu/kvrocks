@@ -94,7 +94,9 @@ static void daemonize() {
 
 int main(int argc, char *argv[]) {
   google::InitGoogleLogging("kvrocks2redis");
+#ifndef DISABLE_USE_PTHREADS
   evthread_use_pthreads();
+#endif
 
   signal(SIGPIPE, SIG_IGN);
   signal(SIGINT, signal_handler);
