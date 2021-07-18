@@ -1,8 +1,8 @@
-# Support Commands
+# 支持命令
 
-## String Commands
+## String 命令
 
-| Command     | Supported OR Not | Desc                 |
+| 命令         |  是否支持         | 描述                  |
 | ----------- | ---------------- | -------------------- |
 | get         | √                |                      |
 | getrange    | √                |                      |
@@ -13,7 +13,7 @@
 | mget        | √                |                      |
 | mset        | √                |                      |
 | msetnx      | √                |                      |
-| psetex      | √                | only supports second |
+| psetex      | √                |                      |
 | set         | √                |                      |
 | setex       | √                |                      |
 | setnx       | √                |                      |
@@ -23,9 +23,9 @@
 | decrby      | √                |                      |
 | decr        | √                |                      |
 
-## Hash Commands
+## Hash 命令
 
-| Command      | Supported OR Not | Desc |
+| 命令          | 是否支持          | 描述  |
 | ------------ | ---------------- | ---- |
 | hdel         | √                |      |
 | hexists      | √                |      |
@@ -43,33 +43,31 @@
 | hvals        | √                |      |
 | hscan        | √                |      |
 
-## List Commands
+## List 命令
 
-| Command    | Supported OR Not | Desc                                                         |
+| 命令        | 是否支持          | 描述                                                          |
 | ---------- | ---------------- | ------------------------------------------------------------ |
 | blpop      | √                |                                                              |
 | brpop      | √                |                                                              |
 | brpoplpush | X                |                                                              |
-| lindex     | √                | Caution: linsert is O(N) operation, don't use it when list was extreme long |
+| lindex     | √                | 复杂度 O(N)， 当 list 很长时不建议使用                           |
 | linsert    | √                |                                                              |
 | llen       | √                |                                                              |
 | lpop       | √                |                                                              |
 | lpush      | √                |                                                              |
 | lpushx     | √                |                                                              |
 | lrange     | √                |                                                              |
-| lrem       | √                | Caution: lrem is O(N) operation, don't use it when list was extreme long |
+| lrem       | √                | 复杂度 O(N)， 当 list 很长时不建议使用                           |
 | lset       | √                |                                                              |
-| ltrim      | √                | Caution: ltrim is O(N) operation, don't use it when list was extreme long |
+| ltrim      | √                | 复杂度 O(N)， 当 list 很长时不建议使用                           |
 | rpop       | √                |                                                              |
 | rpoplpush  | √                |                                                              |
 | rpush      | √                |                                                              |
 | rpushx     | √                |                                                              |
 
+## Set 命令
 
-
-## Set Commands
-
-| Command     | Supported OR Not | Desc                                  |
+| 命令         | 是否支持          | 描述                                  |
 | ----------- | ---------------- | ------------------------------------- |
 | sadd        | √                |                                       |
 | scard       | √                |                                       |
@@ -80,16 +78,16 @@
 | sismember   | √                |                                       |
 | smembers    | √                |                                       |
 | smove       | √                |                                       |
-| spop        | √                | pop the member with key oreder        |
-| srandmember | √                | always first N members if not changed |
+| spop        | √                | 按照 key 的顺序 pop                     |
+| srandmember | √                |                                       |
 | srem        | √                |                                       |
 | sunion      | √                |                                       |
 | sunionstore | √                |                                       |
 | sscan       | √                |                                       |
 
-## ZSet Commands
+## ZSet 命令
 
-| Command          | Supported OR Not | Desc        |
+| 命令              | 是否支持          | 描述         |
 | ---------------- | ---------------- | ----------- |
 | bzpopmin         | X                |             |
 | bzpopmax         | X                |             |
@@ -114,12 +112,12 @@
 | zrevrangebyscore | √                |             |
 | zscan            | √                |             |
 | zscore           | √                |             |
-| zmscore          | √                |multi zscore |
+| zmscore          | √                | 多 zscore   |
 | zunionstore      | √                |             |
 
-## Key Commands
+## Key 命令
 
-| Command   | Supported OR Not | Desc                 |
+| 命令       | 是否支持          | 描述                  |
 | --------- | ---------------- | -------------------- |
 | del       | √                |                      |
 | dump      | X                |                      |
@@ -128,8 +126,8 @@
 | expireat  | √                |                      |
 | keys      | √                |                      |
 | persist   | √                |                      |
-| pexpire   | √                | precision is seconds |
-| pexpireat | √                | precision is seconds |
+| pexpire   | √                | 秒级精度              |
+| pexpireat | √                | 秒级精度              |
 | pttl      | √                |                      |
 | ttl       | √                |                      |
 | type      | √                |                      |
@@ -138,9 +136,9 @@
 | randomkey | √                |                      |
 | object    | √                |                      |
 
-## Bit Commands
+## Bit 命令
 
-| Command  | Supported OR Not | Desc |
+| 命令      | 是否支持          | 描述  |
 | -------- | ---------------- | ---- |
 | getbit   | √                |      |
 | setbit   | √                |      |
@@ -149,13 +147,11 @@
 | bitfield | X                |      |
 | bitop    | X                |      |
 
-**NOTE : String and Bitmap is different type in kvrocks, so you can't do bit with string, vice versa.**
+**说明: 在 kvrocks 中，String 和 Bitmap 是不同的类型, 所以不能在 String 上进行Bit操作，反之亦然。**
 
+## Pub/Sub 命令
 
-
-## Pub/Sub Commands
-
-| Command      | Supported OR Not | Desc |
+| 命令          | 是否支持          | 描述  |
 | ------------ | ---------------- | ---- |
 | psubscribe   | √                |      |
 | publish      | √                |      |
@@ -164,9 +160,9 @@
 | subscribe    | √                |      |
 | unsubscribe  | √                |      |
 
-## Transaction Commands
+## Transaction 命令
 
-| Command   | Supported OR Not | Desc |
+| 命令       | 是否支持          | 描述  |
 | --------- | ---------------- | ---- |
 | multi     | √                |      |
 | exec      | √                |      |
@@ -174,38 +170,38 @@
 | watch     | X                |      |
 | unwatch   | X                |      |
 
-## Sortedint Commands
+## Sortedint 命令
 
-| Command            | Supported OR Not | Desc                                               |
+| 命令                | 是否支持          | 描述                                               |
 | -----------------  | ---------------- | -------------------------------------------------  |
-| sicard             | √                | like scard                                         |
-| siadd              | √                | like sadd, but member is int                       |
-| sirem              | √                | like srem, but member is int                       |
+| sicard             | √                | 用法同 scard                                        |
+| siadd              | √                | 用法同 sadd, 但是成员是整形                           |
+| sirem              | √                | 用法同 srem, 但是成员是整形                           |
 | sirange            | √                | sirange key offset count cursor since_id           |
 | sirevrange         | √                | sirevrange key offset count cursor max_id          |
 | siexists           | √                | siexists key member1 (member2 ...)                 |
 | sirangebyvalue     | √                | sirangebyvalue key min max (LIMIT offset count)    |
 | sirevrangebyvalue  | √                | sirevrangebyvalue key max min (LIMIT offset count) |
 
-## Cluster Subcommands
+## Cluster Sub命令
 
-| Subcommand   | Supported OR Not | Desc |
+| Sub命令       | 是否支持          | 描述 |
 | ------------ | ---------------- | ---- |
 | info         | √                |      |
 | nodes        | √                |      |
 | slots        | √                |      |
 | keyslot      | √                |      |
 
-## Server Commands
+## Server 命令
 
-| Command      | Supported OR Not | Desc |
+| 命令          | 是否支持          | 描述 |
 | ------------ | ---------------- | ---- |
 | auth         | √                |      |
 | bgsave       | √                |      |
 | client       | √                |      |
 | command      | √                |      |
 | config       | √                |      |
-| dbsize       | √                |      |
+| dbsize       | √                | 当执行 `dbsize scan` 之后，db size 会异步更新    |
 | debug        | √                |      |
 | flushdb      | √                |      |
 | flushall     | √                |      |
@@ -221,11 +217,9 @@
 | slowlog      | √                |      |
 | slaveof      | √                |      |
 
-**NOTE : The db size was updated async after execute `dbsize scan` command**
+## GEO 命令
 
-## GEO Commands
-
-| Command               | Supported OR Not | Desc |
+| 命令                   | 是否支持          | 描述  |
 | --------------------- | ---------------- | ---- |
 | geoadd                | √                |      |
 | geodist               | √                |      |
@@ -236,15 +230,15 @@
 | georadius_ro          | √                |      |
 | georadiusbymember_ro  | √                |      |
 
-## Hyperloglog Commands
+## Hyperloglog 命令
 
-**Not Supported**
+**暂不支持**
 
-## Kvrocks Commands
+## Kvrocks 命令
 
-| Command      | Supported OR Not | Desc                   |
+| 命令          | 是否支持          | 描述                    |
 | ------------ | ---------------- | ---------------------- |
-| compact      | √                | manul compaction       |
-| flushbackup  | √                |                        |
-| perflog      | √                | get rocksdb perflog    |
-| stats        | √                | get rocksDB stats      |
+| compact      | √                | 手动 Compaction（异步）  |
+| flushbackup  | √                | 手动清除过期备份（异步）   |
+| perflog      | √                | 获取 Rocksdb 的性能报告  |
+| stats        | √                | 获取 RocksDB 的统计信息  |
