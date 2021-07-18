@@ -50,7 +50,7 @@ sudo yum install -y epel-release && sudo yum install -y git gcc gcc-c++ make sna
 sudo apt-get install gcc g++ make libsnappy-dev autoconf automake libtool which libgtest-dev
 
 # MACOSX
-brew install snappy googletest
+brew install autoconf automake libtool snappy googletest
 ```
 
 It is as simple as:

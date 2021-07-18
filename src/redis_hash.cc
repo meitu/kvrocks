@@ -168,14 +168,14 @@ rocksdb::Status Hash::MGet(const Slice &user_key,
 rocksdb::Status Hash::Set(const Slice &user_key, const Slice &field, const Slice &value, int *ret) {
   FieldValue fv = {field.ToString(), value.ToString()};
   std::vector<FieldValue> fvs;
-  fvs.push_back(fv);
+  fvs.emplace_back(std::move(fv));
   return MSet(user_key, fvs, false, ret);
 }
 
 rocksdb::Status Hash::SetNX(const Slice &user_key, const Slice &field, Slice value, int *ret) {
   FieldValue fv = {field.ToString(), value.ToString()};
   std::vector<FieldValue> fvs;
-  fvs.push_back(fv);
+  fvs.emplace_back(std::move(fv));
   return MSet(user_key, fvs, true, ret);
 }
 

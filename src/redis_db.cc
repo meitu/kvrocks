@@ -443,6 +443,9 @@ rocksdb::Status Database::FindKeyRangeWithPrefix(const std::string &prefix,
   if (cf_handle == nullptr) {
     cf_handle = metadata_cf_handle_;
   }
+  if (prefix.empty()) {
+    return rocksdb::Status::NotFound();
+  }
   begin->clear();
   end->clear();
 
@@ -461,10 +464,8 @@ rocksdb::Status Database::FindKeyRangeWithPrefix(const std::string &prefix,
   // it's ok to increase the last char in prefix as the boundary of the prefix
   // while we limit the namespace last char shouldn't be larger than 128.
   std::string next_prefix = prefix;
-  char last_char = next_prefix.back();
-  last_char++;
-  next_prefix.pop_back();
-  next_prefix.push_back(last_char);
+  auto prefix_size = prefix.size();
+  next_prefix[prefix_size - 1] ++;
   iter->SeekForPrev(next_prefix);
   int max_prev_limit = 128;  // prevent unpredicted long while loop
   int i = 0;
@@ -553,7 +554,7 @@ std::string WriteBatchLogData::Encode() {
 }
 
 Status WriteBatchLogData::Decode(const rocksdb::Slice &blob) {
-  std::string log_data = blob.ToString();
+  const std::string& log_data = blob.ToString();
   std::vector<std::string> args;
   Util::Split(log_data, " ", &args);
   type_ = static_cast<RedisType >(std::stoi(args[0]));

@@ -29,7 +29,7 @@ Status Cron::SetScheduleTime(const std::vector<std::string> &args) {
     if (!s.IsOK()) {
       return Status(Status::NotOK, "time expression format error : " + s.Msg());
     }
-    new_schedulers.push_back(st);
+    new_schedulers.emplace_back(std::move(st));
   }
   schedulers_ = std::move(new_schedulers);
   return Status::OK();
