@@ -107,6 +107,9 @@ start_server {tags {"pubsub"}} {
         set rd1 [redis_deferring_client]
         assert_equal {1 2 3} [subscribe $rd1 {chan1 chan2 chan3}]
         unsubscribe $rd1
+        assert_equal {unsubscribe chan1 2} [$rd1 read]
+        assert_equal {unsubscribe chan2 1} [$rd1 read]
+        assert_equal {unsubscribe chan3 0} [$rd1 read]
         assert_equal 0 [r publish chan1 hello]
         assert_equal 0 [r publish chan2 hello]
         assert_equal 0 [r publish chan3 hello]
@@ -180,6 +183,9 @@ start_server {tags {"pubsub"}} {
         set rd1 [redis_deferring_client]
         assert_equal {1 2 3} [psubscribe $rd1 {chan1.* chan2.* chan3.*}]
         punsubscribe $rd1
+        assert_equal {punsubscribe chan1.* 2} [$rd1 read]
+        assert_equal {punsubscribe chan2.* 1} [$rd1 read]
+        assert_equal {punsubscribe chan3.* 0} [$rd1 read]
         assert_equal 0 [r publish chan1.hi hello]
         assert_equal 0 [r publish chan2.hi hello]
         assert_equal 0 [r publish chan3.hi hello]

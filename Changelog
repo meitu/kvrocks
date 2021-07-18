@@ -1,3 +1,39 @@
+# Version 2.0.2
+
+New features
+  - Support rename command in config file (#272)
+  - Support transaction (#285)
+    Support MULTI, EXEC, DISCARD command, but don't support
+    WATCH and UNWATCH commands.
+  - Support the auto-resize-block-and-sst config directive (#289)
+  - Support to resize rocksdb.block_size automatically (#294)
+  - Support cluster mode (#302)
+    Similar with redis cluster mode, use CLUSTERX command to set
+    cluster topology (#324).
+
+Data encoding changes
+  - Encode key with slot id (#291) (#330)
+    In cluster mode, to be efficient to migrate keys by slot when scale,
+    we encode key with slot id, but in standalone mode, we don't. That is
+    to say, data is not compatible between standalone mode with cluster mode,
+    you must migrate data if you want to change mode, otherwise, kvrocks
+    will make data corrupt.
+
+Bugfixes
+  - Set TCP_KEEPALIVE for replication connection (#284)
+    Replicas can handle network failure with master, before this commit,
+    network failure may result in unrecoverable replication interrupt.
+  - Fix ZSET can't add the same member with different scores (#298)
+  - Make CONFIG SET command thread safe (#310)
+  - Fix LTRIM only delete first item, LREM can't correctly remove
+    repeated items (#314)
+
+Improvements
+  - HSET command supports to set multiple fields (#274)
+  - Allow to use host in the master-slave replication (#301)
+  - Adapt redis sentinel ping check (#316)
+
+
 # Version 2.0.1
 
 New features

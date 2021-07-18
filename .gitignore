@@ -42,3 +42,4 @@ kvrocks
 version.h
 Makefile.dep
 make_config.mk
+.vscode

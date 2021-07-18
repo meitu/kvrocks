@@ -14,6 +14,7 @@
 #include "status.h"
 #include "lock_manager.h"
 #include "config.h"
+#include "rw_lock.h"
 
 enum ColumnFamilyID{
   kColumnFamilyIDDefault,
@@ -61,8 +62,6 @@ class Storage {
   rocksdb::Status Compact(const rocksdb::Slice *begin, const rocksdb::Slice *end);
   rocksdb::DB *GetDB();
   bool IsClosing() { return db_closing_; }
-  Status IncrDBRefs();
-  Status DecrDBRefs();
   const std::string GetName() {return config_->db_name; }
   rocksdb::ColumnFamilyHandle *GetCFHandle(const std::string &name);
   std::vector<rocksdb::ColumnFamilyHandle *>* GetCFHandles() { return &cf_handles_; }
@@ -72,10 +71,14 @@ class Storage {
   Status CheckDBSizeLimit();
   void SetIORateLimit(uint64_t max_io_mb);
 
+  std::unique_ptr<RWLock::ReadLock> ReadLockGuard();
+  std::unique_ptr<RWLock::WriteLock> WriteLockGuard();
+
   uint64_t GetFlushCount() { return flush_count_; }
   void IncrFlushCount(uint64_t n) { flush_count_.fetch_add(n); }
   uint64_t GetCompactionCount() { return compaction_count_; }
   void IncrCompactionCount(uint64_t n) { compaction_count_.fetch_add(n); }
+  bool IsSlotIdEncoded() { return config_->slot_id_encoded; }
 
   Storage(const Storage &) = delete;
   Storage &operator=(const Storage &) = delete;
@@ -128,7 +131,7 @@ class Storage {
   std::mutex backup_mu_;
   time_t backup_creating_time_;
   rocksdb::BackupEngine *backup_ = nullptr;
-  rocksdb::Env *backup_env_;
+  rocksdb::Env *env_;
   std::shared_ptr<rocksdb::SstFileManager> sst_file_manager_;
   std::shared_ptr<rocksdb::RateLimiter> rate_limiter_;
   ReplDataManager::CheckpointInfo checkpoint_info_;
@@ -140,10 +143,10 @@ class Storage {
   std::atomic<uint64_t> flush_count_{0};
   std::atomic<uint64_t> compaction_count_{0};
 
-  std::mutex db_mu_;
-  int db_refs_ = 0;
+  RWLock::ReadWriteLock db_rw_lock_;
   bool db_closing_ = true;
-  bool db_in_retryable_io_error_ = false;
+
+  std::atomic<bool> db_in_retryable_io_error_{false};
 };
 
 }  // namespace Engine

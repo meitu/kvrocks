@@ -38,7 +38,7 @@ Status Parser::ParseFullDB() {
 
 Status Parser::parseSimpleKV(const Slice &ns_key, const Slice &value, int expire) {
   std::string op, ns, user_key;
-  ExtractNamespaceKey(ns_key, &ns, &user_key);
+  ExtractNamespaceKey(ns_key, &ns, &user_key, storage_->IsSlotIdEncoded());
   std::string output;
   output = Rocksdb2Redis::Command2RESP(
       {"SET", user_key, value.ToString().substr(5, value.size() - 5)});
@@ -59,8 +59,8 @@ Status Parser::parseComplexKV(const Slice &ns_key, const Metadata &metadata) {
   }
 
   std::string ns, prefix_key, user_key, sub_key, value, output;
-  ExtractNamespaceKey(ns_key, &ns, &user_key);
-  InternalKey(ns_key, "", metadata.version).Encode(&prefix_key);
+  ExtractNamespaceKey(ns_key, &ns, &user_key, storage_->IsSlotIdEncoded());
+  InternalKey(ns_key, "", metadata.version, storage_->IsSlotIdEncoded()).Encode(&prefix_key);
 
   rocksdb::DB *db_ = storage_->GetDB();
   rocksdb::ReadOptions read_options;
@@ -72,7 +72,7 @@ Status Parser::parseComplexKV(const Slice &ns_key, const Metadata &metadata) {
       break;
     }
     Status s;
-    InternalKey ikey(iter->key());
+    InternalKey ikey(iter->key(),storage_->IsSlotIdEncoded());
     sub_key = ikey.GetSubKey().ToString();
     value = iter->value().ToString();
     switch (type) {
@@ -127,7 +127,7 @@ Status Parser::parseBitmapSegment(const Slice &ns, const Slice &user_key, int in
 
 rocksdb::Status Parser::ParseWriteBatch(const std::string &batch_string) {
   rocksdb::WriteBatch write_batch(batch_string);
-  WriteBatchExtractor write_batch_extractor;
+  WriteBatchExtractor write_batch_extractor(storage_->IsSlotIdEncoded());
   rocksdb::Status status;
 
   status = write_batch.Iterate(&write_batch_extractor);
@@ -155,7 +155,7 @@ rocksdb::Status WriteBatchExtractor::PutCF(uint32_t column_family_id, const Slic
   std::string ns, user_key, sub_key;
   std::vector<std::string> command_args;
   if (column_family_id == kColumnFamilyIDMetadata) {
-    ExtractNamespaceKey(key, &ns, &user_key);
+    ExtractNamespaceKey(key, &ns, &user_key, is_slotid_encoded_);
     Metadata metadata(kRedisNone);
     metadata.Decode(value.ToString());
     if (metadata.Type() == kRedisString) {
@@ -180,7 +180,7 @@ rocksdb::Status WriteBatchExtractor::PutCF(uint32_t column_family_id, const Slic
   }
 
   if (column_family_id == kColumnFamilyIDDefault) {
-    InternalKey ikey(key);
+    InternalKey ikey(key, is_slotid_encoded_);
     user_key = ikey.GetKey().ToString();
     sub_key = ikey.GetSubKey().ToString();
     ns = ikey.GetNamespace().ToString();
@@ -255,10 +255,10 @@ rocksdb::Status WriteBatchExtractor::DeleteCF(uint32_t column_family_id, const S
   std::string ns, user_key, sub_key;
   std::vector<std::string> command_args;
   if (column_family_id == kColumnFamilyIDMetadata) {
-    ExtractNamespaceKey(key, &ns, &user_key);
+    ExtractNamespaceKey(key, &ns, &user_key, is_slotid_encoded_);
     command_args = {"DEL", user_key};
   } else if (column_family_id == kColumnFamilyIDDefault) {
-    InternalKey ikey(key);
+    InternalKey ikey(key, is_slotid_encoded_);
     user_key = ikey.GetKey().ToString();
     sub_key = ikey.GetSubKey().ToString();
     ns = ikey.GetNamespace().ToString();

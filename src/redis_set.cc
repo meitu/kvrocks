@@ -22,7 +22,7 @@ rocksdb::Status Set::Overwrite(Slice user_key, const std::vector<std::string> &m
   batch.PutLogData(log_data.Encode());
   std::string sub_key;
   for (const auto &member : members) {
-    InternalKey(ns_key, member, metadata.version).Encode(&sub_key);
+    InternalKey(ns_key, member, metadata.version, storage_->IsSlotIdEncoded()).Encode(&sub_key);
     batch.Put(sub_key, Slice());
   }
   metadata.size = static_cast<uint32_t>(members.size());
@@ -49,7 +49,7 @@ rocksdb::Status Set::Add(const Slice &user_key, const std::vector<Slice> &member
   batch.PutLogData(log_data.Encode());
   std::string sub_key;
   for (const auto &member : members) {
-    InternalKey(ns_key, member, metadata.version).Encode(&sub_key);
+    InternalKey(ns_key, member, metadata.version, storage_->IsSlotIdEncoded()).Encode(&sub_key);
     s = db_->Get(rocksdb::ReadOptions(), sub_key, &value);
     if (s.ok()) continue;
     batch.Put(sub_key, Slice());
@@ -80,7 +80,7 @@ rocksdb::Status Set::Remove(const Slice &user_key, const std::vector<Slice> &mem
   WriteBatchLogData log_data(kRedisSet);
   batch.PutLogData(log_data.Encode());
   for (const auto &member : members) {
-    InternalKey(ns_key, member, metadata.version).Encode(&sub_key);
+    InternalKey(ns_key, member, metadata.version, storage_->IsSlotIdEncoded()).Encode(&sub_key);
     s = db_->Get(rocksdb::ReadOptions(), sub_key, &value);
     if (!s.ok()) continue;
     batch.Delete(sub_key);
@@ -122,7 +122,7 @@ rocksdb::Status Set::Members(const Slice &user_key, std::vector<std::string> *me
   if (!s.ok()) return s.IsNotFound() ? rocksdb::Status::OK() : s;
 
   std::string prefix;
-  InternalKey(ns_key, "", metadata.version).Encode(&prefix);
+  InternalKey(ns_key, "", metadata.version, storage_->IsSlotIdEncoded()).Encode(&prefix);
   rocksdb::ReadOptions read_options;
   LatestSnapShot ss(db_);
   read_options.snapshot = ss.GetSnapShot();
@@ -131,7 +131,7 @@ rocksdb::Status Set::Members(const Slice &user_key, std::vector<std::string> *me
   for (iter->Seek(prefix);
        iter->Valid() && iter->key().starts_with(prefix);
        iter->Next()) {
-    InternalKey ikey(iter->key());
+    InternalKey ikey(iter->key(), storage_->IsSlotIdEncoded());
     members->emplace_back(ikey.GetSubKey().ToString());
   }
   delete iter;
@@ -152,7 +152,7 @@ rocksdb::Status Set::IsMember(const Slice &user_key, const Slice &member, int *r
   LatestSnapShot ss(db_);
   read_options.snapshot = ss.GetSnapShot();
   std::string sub_key;
-  InternalKey(ns_key, member, metadata.version).Encode(&sub_key);
+  InternalKey(ns_key, member, metadata.version, storage_->IsSlotIdEncoded()).Encode(&sub_key);
   std::string value;
   s = db_->Get(read_options, sub_key, &value);
   if (s.ok()) {
@@ -185,11 +185,11 @@ rocksdb::Status Set::Take(const Slice &user_key, std::vector<std::string> *membe
   read_options.fill_cache = false;
   auto iter = db_->NewIterator(read_options);
   std::string prefix;
-  InternalKey(ns_key, "", metadata.version).Encode(&prefix);
+  InternalKey(ns_key, "", metadata.version, storage_->IsSlotIdEncoded()).Encode(&prefix);
   for (iter->Seek(prefix);
        iter->Valid() && iter->key().starts_with(prefix);
        iter->Next()) {
-    InternalKey ikey(iter->key());
+    InternalKey ikey(iter->key(), storage_->IsSlotIdEncoded());
     members->emplace_back(ikey.GetSubKey().ToString());
     if (pop) batch.Delete(iter->key());
     if (++n >= count) break;

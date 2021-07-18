@@ -29,6 +29,17 @@ start_server {tags {"hash"}} {
         list [r hlen bighash]
     } {1024}
 
+    test {HSET wrong number of args} {
+        catch {r hset hmsetmulti key1 val1 key2} err
+        format $err
+    } {*wrong number*}
+
+    test {HSET supports multiple fields} {
+        assert_equal "2" [r hset hmsetmulti key1 val1 key2 val2]
+        assert_equal "0" [r hset hmsetmulti key1 val1 key2 val2]
+        assert_equal "1" [r hset hmsetmulti key1 val1 key3 val3]
+    }
+
     test {HGET against the small hash} {
         set err {}
         foreach k [array names smallhash *] {

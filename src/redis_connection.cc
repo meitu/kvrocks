@@ -1,13 +1,15 @@
-#include "redis_connection.h"
-
+#include <rocksdb/perf_context.h>
+#include <rocksdb/iostats_context.h>
 #include <glog/logging.h>
+
+#include "redis_connection.h"
 #include "worker.h"
 #include "server.h"
 
 namespace Redis {
 
 Connection::Connection(bufferevent *bev, Worker *owner)
-    : bev_(bev), req_(owner->svr_), owner_(owner) {
+    : bev_(bev), req_(owner->svr_), owner_(owner), svr_(owner->svr_) {
   time_t now;
   time(&now);
   create_time_ = now;
@@ -61,7 +63,8 @@ void Connection::OnRead(struct bufferevent *bev, void *ctx) {
     LOG(INFO) << "Failed to tokenize the request, encounter error: " << s.Msg();
     return;
   }
-  conn->req_.ExecuteCommands(conn);
+  conn->ExecuteCommands(conn->req_.GetCommands());
+  conn->req_.ClearCommands();
   if (conn->IsFlagEnabled(kCloseAsync)) {
     conn->Close();
   }
@@ -142,6 +145,10 @@ std::string Connection::GetFlags() {
 
 void Connection::EnableFlag(Flag flag) {
   flags_ |= flag;
+}
+
+void Connection::DisableFlag(Flag flag) {
+  flags_ &= (~flag);
 }
 
 bool Connection::IsFlagEnabled(Flag flag) {
@@ -232,4 +239,172 @@ void Connection::PUnSubscribeAll(unsubscribe_callback reply) {
 int Connection::PSubscriptionsCount() {
   return static_cast<int>(subcribe_patterns_.size());
 }
+
+bool Connection::isProfilingEnabled(const std::string &cmd) {
+  auto config = svr_->GetConfig();
+  if (config->profiling_sample_ratio == 0) return false;
+  if (!config->profiling_sample_all_commands &&
+      config->profiling_sample_commands.find(cmd) == config->profiling_sample_commands.end()) {
+    return false;
+  }
+  if (config->profiling_sample_ratio == 100 ||
+      std::rand() % 100 <= config->profiling_sample_ratio) {
+    rocksdb::SetPerfLevel(rocksdb::PerfLevel::kEnableTimeExceptForMutex);
+    rocksdb::get_perf_context()->Reset();
+    rocksdb::get_iostats_context()->Reset();
+    return true;
+  }
+  return false;
+}
+
+void Connection::recordProfilingSampleIfNeed(const std::string &cmd, uint64_t duration) {
+  int threshold = svr_->GetConfig()->profiling_sample_record_threshold_ms;
+  if (threshold > 0 && static_cast<int>(duration/1000) < threshold) {
+    rocksdb::SetPerfLevel(rocksdb::PerfLevel::kDisable);
+    return;
+  }
+
+  std::string perf_context = rocksdb::get_perf_context()->ToString(true);
+  std::string iostats_context = rocksdb::get_iostats_context()->ToString(true);
+  rocksdb::SetPerfLevel(rocksdb::PerfLevel::kDisable);
+  if (perf_context.empty()) return;  // request without db operation
+  auto entry = new PerfEntry();
+  entry->cmd_name = cmd;
+  entry->duration = duration;
+  entry->iostats_context = std::move(iostats_context);
+  entry->perf_context = std::move(perf_context);
+  svr_->GetPerfLog()->PushEntry(entry);
+}
+
+void Connection::ExecuteCommands(const std::vector<Redis::CommandTokens> &to_process_cmds) {
+  if (to_process_cmds.empty()) return;
+
+  Config *config = svr_->GetConfig();
+  std::string reply, password;
+  password = IsRepl() ? config->masterauth : config->requirepass;
+
+  for (auto &cmd_tokens : to_process_cmds) {
+    if (IsFlagEnabled(Redis::Connection::kCloseAfterReply)) break;
+    if (GetNamespace().empty()) {
+      if (!password.empty() && Util::ToLower(cmd_tokens.front()) != "auth") {
+        Reply(Redis::Error("NOAUTH Authentication required."));
+        continue;
+      }
+      if (password.empty()) {
+        BecomeAdmin();
+        SetNamespace(kDefaultNamespace);
+      }
+    }
+
+    auto s = svr_->LookupAndCreateCommand(cmd_tokens.front(), &current_cmd_);
+    if (!s.IsOK()) {
+      if (IsFlagEnabled(Connection::kMultiExec)) multi_error_ = true;
+      Reply(Redis::Error("ERR unknown command"));
+      continue;
+    }
+    const auto attributes = current_cmd_->GetAttributes();
+    auto cmd_name = attributes->name;
+
+    std::unique_ptr<RWLock::ReadLock>  concurrency;  // Allow concurrency
+    std::unique_ptr<RWLock::WriteLock> exclusivity;  // Need exclusivity
+    // If the command need to process exclusively, we need to get 'ExclusivityGuard'
+    // that can guarantee other threads can't come into critical zone, such as DEBUG,
+    // CLUSTER subcommand, CONFIG SET, MULTI, LUA (in the immediate future).
+    // Otherwise, we just use 'ConcurrencyGuard' to allow all workers to execute
+    // commands at the same time.
+    if (IsFlagEnabled(Connection::kMultiExec) && attributes->name != "exec") {
+      // No lock guard, because 'exec' command has acquired 'WorkExclusivityGuard'
+    } else if (attributes->is_exclusive() ||
+        (cmd_name == "config" && cmd_tokens.size() == 2 && !strcasecmp(cmd_tokens[1].c_str(), "set")) ||
+        (config->cluster_enabled && cmd_name == "clusterx" && cmd_tokens.size() >= 2
+         && Cluster::SubCommandIsExecExclusive(cmd_tokens[1]))) {
+      exclusivity = svr_->WorkExclusivityGuard();
+    } else {
+      concurrency = svr_->WorkConcurrencyGuard();
+    }
+
+    if (svr_->IsLoading() && attributes->is_ok_loading() == false) {
+      Reply(Redis::Error("LOADING kvrocks is restoring the db from backup"));
+      if (IsFlagEnabled(Connection::kMultiExec)) multi_error_ = true;
+      continue;
+    }
+    int arity = attributes->arity;
+    int tokens = static_cast<int>(cmd_tokens.size());
+    if ((arity > 0 && tokens != arity)
+        || (arity < 0 && tokens < -arity)) {
+      if (IsFlagEnabled(Connection::kMultiExec)) multi_error_ = true;
+      Reply(Redis::Error("ERR wrong number of arguments"));
+      continue;
+    }
+    current_cmd_->SetArgs(cmd_tokens);
+    s = current_cmd_->Parse(cmd_tokens);
+    if (!s.IsOK()) {
+      if (IsFlagEnabled(Connection::kMultiExec)) multi_error_ = true;
+      Reply(Redis::Error(s.Msg()));
+      continue;
+    }
+
+    if (IsFlagEnabled(Connection::kMultiExec) && attributes->is_no_multi()) {
+      std::string no_multi_err = "Err Can't execute " + attributes->name + " in MULTI";
+      Reply(Redis::Error(no_multi_err));
+      multi_error_ = true;
+      continue;
+    }
+
+    if (config->cluster_enabled) {
+      s = svr_->cluster_->CanExecByMySelf(attributes, cmd_tokens);
+      if (!s.IsOK()) {
+        if (IsFlagEnabled(Connection::kMultiExec)) multi_error_ = true;
+        Reply(Redis::Error(s.Msg()));
+        continue;;
+      }
+    }
+
+    // We don't execute commands, but queue them, ant then execute in EXEC command
+    if (IsFlagEnabled(Connection::kMultiExec) && !in_exec_ && !attributes->is_multi()) {
+      multi_cmds_.emplace_back(cmd_tokens);
+      Reply(Redis::SimpleString("QUEUED"));
+      continue;
+    }
+
+    if (config->slave_readonly && svr_->IsSlave() && attributes->is_write()) {
+      Reply(Redis::Error("READONLY You can't write against a read only slave."));
+      continue;
+    }
+    if (!config->slave_serve_stale_data && svr_->IsSlave()
+        && cmd_name != "info" && cmd_name != "slaveof"
+        && svr_->GetReplicationState() != kReplConnected) {
+      Reply(Redis::Error("MASTERDOWN Link with MASTER is down "
+                               "and slave-serve-stale-data is set to 'no'."));
+      continue;
+    }
+
+    SetLastCmd(cmd_name);
+    svr_->stats_.IncrCalls(cmd_name);
+    auto start = std::chrono::high_resolution_clock::now();
+    bool is_profiling = isProfilingEnabled(cmd_name);
+    s = current_cmd_->Execute(svr_, this, &reply);
+    auto end = std::chrono::high_resolution_clock::now();
+    uint64_t duration = std::chrono::duration_cast<std::chrono::microseconds>(end-start).count();
+    if (is_profiling) recordProfilingSampleIfNeed(cmd_name, duration);
+    svr_->SlowlogPushEntryIfNeeded(current_cmd_->Args(), duration);
+    svr_->stats_.IncrLatency(static_cast<uint64_t>(duration), cmd_name);
+    svr_->FeedMonitorConns(this, cmd_tokens);
+    // Reply for MULTI
+    if (!s.IsOK()) {
+      Reply(Redis::Error("ERR " + s.Msg()));
+      continue;
+    }
+    if (!reply.empty()) Reply(reply);
+    reply.clear();
+  }
+}
+
+void Connection::ResetMultiExec() {
+  in_exec_ = false;
+  multi_error_ = false;
+  multi_cmds_.clear();
+  DisableFlag(Connection::kMultiExec);
+}
+
 }  // namespace Redis

@@ -99,6 +99,9 @@ Config::Config() {
       {"profiling-sample-commands", false, new StringField(&profiling_sample_commands_, "")},
       {"slowlog-max-len", false, new IntField(&slowlog_max_len, 128, 0, INT_MAX)},
       {"purge-backup-on-fullsync", false, new YesNoField(&purge_backup_on_fullsync, false)},
+      {"rename-command", true, new StringField(&rename_command_, "")},
+      {"auto-resize-block-and-sst", false, new YesNoField(&auto_resize_block_and_sst, true)},
+      {"cluster-enabled", true, new YesNoField(&cluster_enabled, false)},
       /* rocksdb options */
       {"rocksdb.compression", false, new EnumField(&RocksDB.compression, compression_type_enum, 0)},
       {"rocksdb.block_size", true, new IntField(&RocksDB.block_size, 4096, 0, INT_MAX)},
@@ -175,6 +178,27 @@ void Config::initFieldValidator() {
         compaction_checker_range.Stop = stop;
         return Status::OK();
       }},
+      {"rename-command", [](const std::string &k, const std::string &v) -> Status {
+        std::vector<std::string> args;
+        Util::Split(v, " \t", &args);
+        if (args.size() != 2) {
+          return Status(Status::NotOK, "Invalid rename-command format");
+        }
+        auto commands = Redis::GetCommands();
+        auto cmd_iter = commands->find(Util::ToLower(args[0]));
+        if (cmd_iter == commands->end()) {
+          return Status(Status::NotOK, "No such command in rename-command");
+        }
+        if (args[1] != "\"\"") {
+          auto new_command_name = Util::ToLower(args[1]);
+          if (commands->find(new_command_name) != commands->end()) {
+            return Status(Status::NotOK, "Target command name already exists");
+          }
+          (*commands)[new_command_name] = cmd_iter->second;
+        }
+        commands->erase(cmd_iter);
+        return Status::OK();
+      }},
   };
   for (const auto& iter : validators) {
     auto field_iter = fields_.find(iter.first);
@@ -206,6 +230,10 @@ void Config::initFieldCallback() {
         backup_sync_dir = dir + "/backup_for_sync";
         return Status::OK();
       }},
+      {"cluster-enabled", [this](Server* srv, const std::string &k, const std::string& v)->Status {
+        if (cluster_enabled) slot_id_encoded = true;
+        return Status::OK();
+      }},
       {"bind", [this](Server* srv,  const std::string &k,  const std::string& v)->Status {
         trimRocksDBPrefix(k);
         std::vector<std::string> args;
@@ -230,8 +258,6 @@ void Config::initFieldCallback() {
         return Status::OK();
       }},
       {"profiling-sample-commands", [this](Server* srv, const std::string &k, const std::string& v)->Status {
-        if (!srv) return Status::OK();
-
         std::vector<std::string> cmds;
         Util::Split(v, ",", &cmds);
         profiling_sample_all_commands = false;
@@ -240,7 +266,8 @@ void Config::initFieldCallback() {
           if (cmd == "*") {
             profiling_sample_all_commands = true;
             profiling_sample_commands.clear();
-          } else if (srv->IsCommandExists(cmd)) {
+          } else if (Redis::IsCommandExists(cmd)) {
+            // profiling_sample_commands use command's original name, regardless of rename-command directive
             profiling_sample_commands.insert(cmd);
           }
         }

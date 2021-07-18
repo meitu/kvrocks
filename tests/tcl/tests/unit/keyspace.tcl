@@ -107,4 +107,39 @@ start_server {tags {"keyspace"}} {
         r keys *
         r keys *
     } {dlskeriewrioeuwqoirueioqwrueoqwrueqw}
+
+    test {KEYS with multi namespace} {
+        r flushdb
+        r config set requirepass foobared
+
+        set namespaces {test_ns1 test_ns2}
+        set tokens {test_ns_token1 test_ns_token2}
+
+        set ns_keyspaces {{foo_a foo_b foo_c key_l} {foo_d foo_e foo_f key_m}}
+        set foo_prefix_keyspaces {{foo_a foo_b foo_c} {foo_d foo_e foo_f}}
+
+        # Add namespaces and write key
+        set index 0
+        foreach ns $namespaces {
+            r auth foobared
+            r namespace add $ns [lindex $tokens $index]
+
+            r auth [lindex $tokens $index]
+            foreach key [lindex $ns_keyspaces $index] {
+                r set $key hello
+            }
+
+            incr index
+        }
+
+        # Check KEYS and KEYS MATCH in different namespace
+        set index 0
+        foreach token $tokens {
+            r auth $token
+            assert_equal [lsort [r keys *]]  [lindex $ns_keyspaces $index]
+            assert_equal [lsort [r keys foo*]]  [lindex $foo_prefix_keyspaces $index]
+
+            incr index
+        }
+    }
 }

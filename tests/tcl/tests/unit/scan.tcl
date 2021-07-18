@@ -207,4 +207,63 @@ start_server {tags {"scan network"}} {
         set res [r zscan mykey 0 MATCH foo* COUNT 10000]
         lsort -unique [lindex $res 1]
     }
+
+    test {SCAN with multi namespace} {
+        r flushdb
+        r config set requirepass foobared
+
+        set namespaces {test_ns1 test_ns2}
+        set tokens {test_ns_token1 test_ns_token2}
+        set key_prefixs {key1* key2*}
+
+        # Add namespaces and write key
+        set index 0
+        foreach ns $namespaces {
+            r auth foobared
+            r namespace add $ns [lindex $tokens $index]
+
+            r auth [lindex $tokens $index]
+            set prefix [lindex $key_prefixs $index]
+            for {set j 0} {$j < 1000} {incr j} {
+                r set $prefix$j hello
+            }
+            for {set j 0} {$j < 100} {incr j} {
+                r set $j hello
+            }
+
+            incr index
+        }
+
+        # Check SCAN and SCAN MATCH in different namespace
+        set index 0
+        foreach token $tokens {
+            r auth $token
+
+            # SCAN to get all keys
+            set cur 0
+            set keys {}
+            while 1 {
+                set res [r scan $cur count 1]
+                set cur [lindex $res 0]
+                set k [lindex $res 1]
+                lappend keys {*}$k
+                if {$cur == 0} break
+            }
+            assert_equal 1100 [llength $keys]
+
+            # SCAN MATCH
+            set cur 0
+            set keys {}
+            while 1 {
+                set res [r scan $cur match [lindex $key_prefixs $index]]
+                set cur [lindex $res 0]
+                set k [lindex $res 1]
+                lappend keys {*}$k
+                if {$cur == 0} break
+            }
+            assert_equal 1000 [llength $keys]
+
+            incr index
+        }
+    }
 }

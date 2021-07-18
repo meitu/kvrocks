@@ -160,6 +160,16 @@
 | subscribe    | √                |      |
 | unsubscribe  | √                |      |
 
+## Transaction Commands
+
+| Command   | Supported OR Not | Desc |
+| --------- | ---------------- | ---- |
+| multi     | √                |      |
+| exec      | √                |      |
+| discard   | √                |      |
+| watch     | X                |      |
+| unwatch   | X                |      |
+
 ## Sortedint Commands
 
 | Command            | Supported OR Not | Desc                                               |
@@ -173,7 +183,16 @@
 | sirangebyvalue     | √                | sirangebyvalue key min max (LIMIT offset count)    |
 | sirevrangebyvalue  | √                | sirevrangebyvalue key max min (LIMIT offset count) |
 
-## Administrator Commands
+## Cluster Subcommands
+
+| Subcommand   | Supported OR Not | Desc |
+| ------------ | ---------------- | ---- |
+| info         | √                |      |
+| nodes        | √                |      |
+| slots        | √                |      |
+| keyslot      | √                |      |
+
+## Server Commands
 
 | Command      | Supported OR Not | Desc |
 | ------------ | ---------------- | ---- |
@@ -185,6 +204,7 @@
 | namespace    | √                |      |
 | flushdb      | √                |      |
 | flushall     | √                |      |
+| command      | √                |      |
 
 **NOTE : The db size was updated async after execute `dbsize scan` command**
 

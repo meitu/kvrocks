@@ -15,7 +15,7 @@ bool MetadataFilter::Filter(int level,
   std::string ns, user_key, bytes = value.ToString();
   Metadata metadata(kRedisNone, false);
   rocksdb::Status s = metadata.Decode(bytes);
-  ExtractNamespaceKey(key, &ns, &user_key);
+  ExtractNamespaceKey(key, &ns, &user_key, stor_->IsSlotIdEncoded());
   if (!s.ok()) {
     LOG(WARNING) << "[compact_filter/metadata] Failed to decode,"
                  << ", namespace: " << ns
@@ -38,14 +38,11 @@ bool SubKeyFilter::IsKeyExpired(const InternalKey &ikey, const Slice &value) con
   // storage close the would delete the column familiy handler and DB
   if (!db || cf_handles->size() < 2)  return false;
 
-  ComposeNamespaceKey(ikey.GetNamespace(), ikey.GetKey(), &metadata_key);
+  ComposeNamespaceKey(ikey.GetNamespace(), ikey.GetKey(), &metadata_key, stor_->IsSlotIdEncoded());
+
   if (cached_key_.empty() || metadata_key != cached_key_) {
     std::string bytes;
-    if (!stor_->IncrDBRefs().IsOK()) {  // the db is closing, don't use DB and cf_handles
-      return false;
-    }
     rocksdb::Status s = db->Get(rocksdb::ReadOptions(), (*cf_handles)[1], metadata_key, &bytes);
-    stor_->DecrDBRefs();
     cached_key_ = std::move(metadata_key);
     if (s.ok()) {
       cached_metadata_ = std::move(bytes);
@@ -90,7 +87,7 @@ bool SubKeyFilter::Filter(int level,
                                   const Slice &value,
                                   std::string *new_value,
                                   bool *modified) const {
-  InternalKey ikey(key);
+  InternalKey ikey(key, stor_->IsSlotIdEncoded());
   bool result = IsKeyExpired(ikey, value);
   DLOG(INFO) << "[compact_filter/subkey] "
              << "namespace: " << ikey.GetNamespace().ToString()

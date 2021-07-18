@@ -96,6 +96,7 @@ TEST(Config, GetAndSet) {
 
 TEST(Namespace, Add) {
   Config config;
+  config.slot_id_encoded = false;
   EXPECT_TRUE(!config.AddNamespace("ns", "t0").IsOK());
   config.requirepass = "foobared";
   std::vector<std::string> namespaces= {"n1", "n2", "n3", "n4"};
@@ -120,6 +121,7 @@ TEST(Namespace, Add) {
 
 TEST(Namespace, Set) {
   Config config;
+  config.slot_id_encoded = false;
   config.requirepass = "foobared";
   std::vector<std::string> namespaces= {"n1", "n2", "n3", "n4"};
   std::vector<std::string> tokens = {"t1", "t2", "t3", "t4"};
@@ -149,6 +151,7 @@ TEST(Namespace, Set) {
 
 TEST(Namespace, Delete) {
   Config config;
+  config.slot_id_encoded = false;
   config.requirepass = "foobared";
   std::vector<std::string> namespaces= {"n1", "n2", "n3", "n4"};
   std::vector<std::string> tokens = {"t1", "t2", "t3", "t4"};
@@ -175,6 +178,7 @@ TEST(Namespace, RewriteNamespaces) {
   config.requirepass = "test";
   config.backup_dir = "test";
   config.Load(path) ;
+  config.slot_id_encoded = false;
   std::vector<std::string> namespaces= {"n1", "n2", "n3", "n4"};
   std::vector<std::string> tokens = {"t1", "t2", "t3", "t4"};
   for(size_t i = 0; i < namespaces.size(); i++) {

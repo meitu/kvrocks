@@ -85,6 +85,15 @@ void EncodeFixed8(char *buf, uint8_t value) {
   buf[0] = static_cast<uint8_t>(value & 0xff);
 }
 
+void EncodeFixed16(char *buf, uint16_t value) {
+  if (BYTE_ORDER == BIG_ENDIAN) {
+    memcpy(buf, &value, sizeof(value));
+  } else {
+    buf[0] = static_cast<uint8_t>((value >> 8) & 0xff);
+    buf[1] = static_cast<uint8_t>(value & 0xff);
+  }
+}
+
 void EncodeFixed32(char *buf, uint32_t value) {
   if (BYTE_ORDER == BIG_ENDIAN) {
     memcpy(buf, &value, sizeof(value));
@@ -115,6 +124,12 @@ void PutFixed8(std::string *dst, uint8_t value) {
   char buf[1];
   buf[0] = static_cast<uint8_t>(value & 0xff);
   dst->append(buf, 1);
+}
+
+void PutFixed16(std::string *dst, uint16_t value) {
+  char buf[sizeof(value)];
+  EncodeFixed16(buf, value);
+  dst->append(buf, sizeof(buf));
 }
 
 void PutFixed32(std::string *dst, uint32_t value) {
@@ -172,11 +187,31 @@ bool GetFixed32(rocksdb::Slice *input, uint32_t *value) {
   return true;
 }
 
+bool GetFixed16(rocksdb::Slice *input, uint16_t *value) {
+  if (input->size() < sizeof(uint16_t)) {
+    return false;
+  }
+  *value = DecodeFixed16(input->data());
+  input->remove_prefix(sizeof(uint16_t));
+  return true;
+}
+
 bool GetDouble(rocksdb::Slice *input, double *value) {
   if (input->size() < sizeof(double)) return false;
   *value = DecodeDouble(input->data());
   input->remove_prefix(sizeof(double));
   return true;
+}
+
+uint16_t DecodeFixed16(const char *ptr) {
+  if (BYTE_ORDER == BIG_ENDIAN) {
+    uint16_t value;
+    memcpy(&value, ptr, sizeof(value));
+    return value;
+  } else {
+    return ((static_cast<uint16_t>(static_cast<uint8_t>(ptr[1])))
+        | (static_cast<uint16_t>(static_cast<uint8_t>(ptr[0])) << 8));
+  }
 }
 
 uint32_t DecodeFixed32(const char *ptr) {

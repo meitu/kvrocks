@@ -1,3 +1,4 @@
+#include "redis_slot.h"
 #include "redis_db.h"
 #include <ctime>
 #include "server.h"
@@ -138,10 +139,18 @@ void Database::GetKeyNumStats(const std::string &prefix, KeyNumStats *stats) {
 }
 
 void Database::Keys(std::string prefix, std::vector<std::string> *keys, KeyNumStats *stats) {
+  uint16_t slot_id = 0;
   std::string ns_prefix, ns, user_key, value;
   if (namespace_ != kDefaultNamespace || keys != nullptr) {
-    AppendNamespacePrefix(prefix, &ns_prefix);
-    prefix = ns_prefix;
+    if (storage_->IsSlotIdEncoded()) {
+      ComposeNamespaceKey(namespace_, "", &ns_prefix, false);
+      if (!prefix.empty()) {
+        PutFixed16(&ns_prefix, slot_id);
+        ns_prefix.append(prefix);
+      }
+    } else {
+      AppendNamespacePrefix(prefix, &ns_prefix);
+    }
   }
 
   uint64_t ttl_sum = 0;
@@ -150,31 +159,43 @@ void Database::Keys(std::string prefix, std::vector<std::string> *keys, KeyNumSt
   read_options.snapshot = ss.GetSnapShot();
   read_options.fill_cache = false;
   auto iter = db_->NewIterator(read_options, metadata_cf_handle_);
-  prefix.empty() ? iter->SeekToFirst() : iter->Seek(prefix);
-  for (; iter->Valid(); iter->Next()) {
-    if (!prefix.empty() && !iter->key().starts_with(prefix)) {
-      break;
-    }
-    Metadata metadata(kRedisNone, false);
-    value = iter->value().ToString();
-    metadata.Decode(value);
-    if (metadata.Expired()) {
-      if (stats) stats->n_expired++;
-      continue;
-    }
-    if (stats) {
-      int32_t ttl = metadata.TTL();
-      stats->n_key++;
-      if (ttl != -1) {
-        stats->n_expires++;
-        if (ttl > 0) ttl_sum += ttl;
+
+  while (true) {
+    ns_prefix.empty() ? iter->SeekToFirst() : iter->Seek(ns_prefix);
+    for (; iter->Valid(); iter->Next()) {
+      if (!ns_prefix.empty() && !iter->key().starts_with(ns_prefix)) {
+        break;
+      }
+      Metadata metadata(kRedisNone, false);
+      value = iter->value().ToString();
+      metadata.Decode(value);
+      if (metadata.Expired()) {
+        if (stats) stats->n_expired++;
+        continue;
+      }
+      if (stats) {
+        int32_t ttl = metadata.TTL();
+        stats->n_key++;
+        if (ttl != -1) {
+          stats->n_expires++;
+          if (ttl > 0) ttl_sum += ttl;
+        }
+      }
+      if (keys) {
+        ExtractNamespaceKey(iter->key(), &ns, &user_key, storage_->IsSlotIdEncoded());
+        keys->emplace_back(user_key);
       }
     }
-    if (keys) {
-      ExtractNamespaceKey(iter->key(), &ns, &user_key);
-      keys->emplace_back(user_key);
-    }
+
+    if (!storage_->IsSlotIdEncoded()) break;
+    if (prefix.empty()) break;
+    if (++slot_id >= HASH_SLOTS_SIZE) break;
+
+    ComposeNamespaceKey(namespace_, "", &ns_prefix, false);
+    PutFixed16(&ns_prefix, slot_id);
+    ns_prefix.append(prefix);
   }
+
   if (stats && stats->n_expires > 0) {
     stats->avg_ttl = ttl_sum / stats->n_expires;
   }
@@ -184,17 +205,31 @@ void Database::Keys(std::string prefix, std::vector<std::string> *keys, KeyNumSt
 rocksdb::Status Database::Scan(const std::string &cursor,
                          uint64_t limit,
                          const std::string &prefix,
-                         std::vector<std::string> *keys) {
+                         std::vector<std::string> *keys,
+                         std::string *end_cursor) {
+  end_cursor->clear();
   uint64_t cnt = 0;
-  std::string ns_prefix, ns_cursor, ns, user_key, value;
-  AppendNamespacePrefix(prefix, &ns_prefix);
-  AppendNamespacePrefix(cursor, &ns_cursor);
+  uint16_t slot_id = 0, slot_start = 0;
+  std::string ns_prefix, ns_cursor, ns, user_key, value, index_key;
 
   LatestSnapShot ss(db_);
   rocksdb::ReadOptions read_options;
   read_options.snapshot = ss.GetSnapShot();
   read_options.fill_cache = false;
   auto iter = db_->NewIterator(read_options, metadata_cf_handle_);
+
+  AppendNamespacePrefix(cursor, &ns_cursor);
+  if (storage_->IsSlotIdEncoded()) {
+    slot_start = cursor.empty() ? 0 : GetSlotNumFromKey(cursor);
+    ComposeNamespaceKey(namespace_, "", &ns_prefix, false);
+    if (!prefix.empty()) {
+      PutFixed16(&ns_prefix, slot_start);
+      ns_prefix.append(prefix);
+    }
+  } else {
+    AppendNamespacePrefix(prefix, &ns_prefix);
+  }
+
   if (!cursor.empty()) {
     iter->Seek(ns_cursor);
     if (iter->Valid()) {
@@ -206,17 +241,59 @@ rocksdb::Status Database::Scan(const std::string &cursor,
     iter->Seek(ns_prefix);
   }
 
-  for (; iter->Valid() && cnt < limit; iter->Next()) {
-    if (!ns_prefix.empty() && !iter->key().starts_with(ns_prefix)) {
+  slot_id = slot_start;
+  while (true) {
+    for (; iter->Valid() && cnt < limit; iter->Next()) {
+      if (!ns_prefix.empty() && !iter->key().starts_with(ns_prefix)) {
+        break;
+      }
+      Metadata metadata(kRedisNone, false);
+      value = iter->value().ToString();
+      metadata.Decode(value);
+      if (metadata.Expired()) continue;
+      ExtractNamespaceKey(iter->key(), &ns, &user_key, storage_->IsSlotIdEncoded());
+      keys->emplace_back(user_key);
+      cnt++;
+    }
+
+    if (!storage_->IsSlotIdEncoded() || prefix.empty()) {
+      if (!keys->empty()) {
+          end_cursor->append(user_key);
+      }
       break;
     }
-    Metadata metadata(kRedisNone, false);
-    value = iter->value().ToString();
-    metadata.Decode(value);
-    if (metadata.Expired()) continue;
-    ExtractNamespaceKey(iter->key(), &ns, &user_key);
-    keys->emplace_back(user_key);
-    cnt++;
+
+    if (cnt >= limit) {
+      end_cursor->append(user_key);
+      break;
+    }
+
+    if (++slot_id >= HASH_SLOTS_SIZE) {
+      break;
+    }
+
+    if (slot_id > slot_start + HASH_SLOTS_MAX_ITERATIONS) {
+      if (keys->empty()) {
+        if (iter->Valid()) {
+          ExtractNamespaceKey(iter->key(), &ns, &user_key, storage_->IsSlotIdEncoded());
+
+          auto res = std::mismatch(prefix.begin(), prefix.end(), user_key.begin());
+          if (res.first == prefix.end()) {
+            keys->emplace_back(user_key);
+          }
+
+          end_cursor->append(user_key);
+        }
+      } else {
+        end_cursor->append(user_key);
+      }
+      break;
+    }
+
+    ComposeNamespaceKey(namespace_, "", &ns_prefix, false);
+    PutFixed16(&ns_prefix, slot_id);
+    ns_prefix.append(prefix);
+    iter->Seek(ns_prefix);
   }
   delete iter;
   return rocksdb::Status::OK();
@@ -225,14 +302,15 @@ rocksdb::Status Database::Scan(const std::string &cursor,
 rocksdb::Status Database::RandomKey(const std::string &cursor, std::string *key) {
   key->clear();
 
+  std::string end_cursor;
   std::vector<std::string> keys;
-  auto s = Scan(cursor, 60, "", &keys);
+  auto s = Scan(cursor, 60, "", &keys, &end_cursor);
   if (!s.ok()) {
     return s;
   }
   if (keys.empty() && !cursor.empty()) {
     // if reach the end, restart from begining
-    auto s = Scan("", 60, "", &keys);
+    auto s = Scan("", 60, "", &keys, &end_cursor);
     if (!s.ok()) {
       return s;
     }
@@ -246,7 +324,7 @@ rocksdb::Status Database::RandomKey(const std::string &cursor, std::string *key)
 
 rocksdb::Status Database::FlushDB() {
   std::string prefix, begin_key, end_key;
-  AppendNamespacePrefix("", &prefix);
+  ComposeNamespaceKey(namespace_, "", &prefix, false);
   auto s = FindKeyRangeWithPrefix(prefix, &begin_key, &end_key);
   if (!s.ok()) {
     return rocksdb::Status::OK();
@@ -355,7 +433,7 @@ rocksdb::Status Database::Type(const Slice &user_key, RedisType *type) {
 }
 
 void Database::AppendNamespacePrefix(const Slice &user_key, std::string *output) {
-  ComposeNamespaceKey(namespace_, user_key, output);
+  ComposeNamespaceKey(namespace_, user_key, output, storage_->IsSlotIdEncoded());
 }
 
 rocksdb::Status Database::FindKeyRangeWithPrefix(const std::string &prefix,
@@ -424,14 +502,14 @@ rocksdb::Status SubKeyScanner::Scan(RedisType type,
   auto iter = db_->NewIterator(read_options);
   std::string match_prefix_key;
   if (!subkey_prefix.empty()) {
-    InternalKey(ns_key, subkey_prefix, metadata.version).Encode(&match_prefix_key);
+    InternalKey(ns_key, subkey_prefix, metadata.version, storage_->IsSlotIdEncoded()).Encode(&match_prefix_key);
   } else {
-    InternalKey(ns_key, "", metadata.version).Encode(&match_prefix_key);
+    InternalKey(ns_key, "", metadata.version, storage_->IsSlotIdEncoded()).Encode(&match_prefix_key);
   }
 
   std::string start_key;
   if (!cursor.empty()) {
-    InternalKey(ns_key, cursor, metadata.version).Encode(&start_key);
+    InternalKey(ns_key, cursor, metadata.version, storage_->IsSlotIdEncoded()).Encode(&start_key);
   } else {
     start_key = match_prefix_key;
   }
@@ -444,7 +522,7 @@ rocksdb::Status SubKeyScanner::Scan(RedisType type,
     if (!iter->key().starts_with(match_prefix_key)) {
       break;
     }
-    InternalKey ikey(iter->key());
+    InternalKey ikey(iter->key(), storage_->IsSlotIdEncoded());
     keys->emplace_back(ikey.GetSubKey().ToString());
     if (values != nullptr) {
       values->emplace_back(iter->value().ToString());

@@ -8,12 +8,12 @@ on:
 env:
   FPM_OPTS: "-s dir --prefix '/www/kvrocks' -n kvrocks --epoch 7 \
           --config-files /www/kvrocks/conf/kvrocks.conf --iteration release \
-          --verbose --category 'bitleak/projects' --description 'kvrocks' \
-          --url 'https://github.com/bitleak' --license 'BSD'"
+          --verbose --category 'kvrocks/projects' --description 'kvrocks' \
+          --url 'https://github.com/KvrocksLabs' --license 'BSD'"
 
 jobs:
-  build-deb-packages-and-push-docker-image:
-    name: Build Deb Packages And Push Docker Image
+  release-deb-packages-and-docker-image:
+    name: Release Deb Packages And Docker Image
     runs-on: ubuntu-18.04
     steps:
 
@@ -46,10 +46,13 @@ jobs:
           fpm_args: '.'
           fpm_opts: '-t deb -v ${{ env.VERSION }} -C ./build --depends libsnappy-dev ${{ env.FPM_OPTS }}'
 
-      - name: Upload Deb package
-        uses: kittaakos/upload-artifact-as-is@v0.0.1
+      - name: Release
+        uses: softprops/action-gh-release@v1
         with:
-          path: ./*.deb
+          files: |
+            ./*.deb
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Login Docker Hub
         uses: docker/login-action@v1
@@ -59,13 +62,13 @@ jobs:
 
       - name: Build And Push Docker Image
         run: |
-          docker build -t bitleak/kvrocks:$RELEASE_TAG .
-          docker tag bitleak/kvrocks:$RELEASE_TAG bitleak/kvrocks:latest
-          docker push bitleak/kvrocks:$RELEASE_TAG
-          docker push bitleak/kvrocks:latest
+          docker build -t kvrocks/kvrocks:$RELEASE_TAG .
+          docker tag kvrocks/kvrocks:$RELEASE_TAG kvrocks/kvrocks:latest
+          docker push kvrocks/kvrocks:$RELEASE_TAG
+          docker push kvrocks/kvrocks:latest
 
-  build-rpm-packages:
-    name: Build Rpm Packages
+  release-rpm-packages:
+    name: Release Rpm Packages
     runs-on: ubuntu-18.04
     container: centos:7
     steps:
@@ -100,26 +103,10 @@ jobs:
           fpm_args: '.'
           fpm_opts: "-t rpm -v ${{ env.VERSION }} -C ./build --depends snappy ${{ env.FPM_OPTS }}"
 
-      - name: Upload Rpm Package
-        uses: kittaakos/upload-artifact-as-is@v0.0.1
-        with:
-          path: ./*.rpm
-
-  release:
-    name: Release Linux Packages
-    needs: [ build-deb-packages-and-push-docker-image, build-rpm-packages ]
-    runs-on: ubuntu-18.04
-    steps:
-
-      - name: Download Linux Packages
-        uses: actions/download-artifact@v2
-
       - name: Release
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            ./*.deb
             ./*.rpm
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-

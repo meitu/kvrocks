@@ -51,6 +51,7 @@ class Parser {
  */
 class WriteBatchExtractor : public rocksdb::WriteBatch::Handler {
  public:
+  explicit WriteBatchExtractor(bool is_slotid_encoded): is_slotid_encoded_(is_slotid_encoded) {}
   void LogData(const rocksdb::Slice &blob) override;
   rocksdb::Status PutCF(uint32_t column_family_id, const Slice &key,
                         const Slice &value) override;
@@ -61,4 +62,5 @@ class WriteBatchExtractor : public rocksdb::WriteBatch::Handler {
   std::map<std::string, std::vector<std::string>> aof_strings_;
   Redis::WriteBatchLogData log_data_;
   bool firstSeen_ = true;
+  bool is_slotid_encoded_ = false;
 };

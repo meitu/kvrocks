@@ -1,6 +1,6 @@
 start_server {tags {"repl"}} {
     set A [srv 0 client]
-    set A_host [srv 0 host]
+    set A_host "localhost"
     set A_port [srv 0 port]
     start_server {} {
         set B [srv 0 client]
@@ -41,8 +41,7 @@ start_server {tags {"repl"}} {
             s role
         } {slave}
 
-        after 1000
-        wait_for_sync r
+        after 3000
         test {Sync should have transferred keys from master} {
             after 100
             assert_equal [r -1 get mykey] [r get mykey]
@@ -129,16 +128,24 @@ start_server {tags {"repl"}} {
     }
 }
 
-start_server {tags {"repl"} overrides {max-replication-mb 1 rocksdb.write_buffer_size 1 rocksdb.target_file_size_base 1}} {
+start_server {tags {"repl"} overrides {max-replication-mb 1 rocksdb.compression no
+                    rocksdb.write_buffer_size 1 rocksdb.target_file_size_base 1}} {
     # Generate multiple sst files
     populate 1024 "" 10240
     r set a b
     r compact
     after 1000
+    # Wait for finishing compaction
+    wait_for_condition 100 100 {
+        [s is_compacting] eq no
+    } else {
+        fail "Failed to compact DB"
+    }
 
     start_server {} {
         test {resume broken transfer based files} {
             populate 1026 "" 1
+            set dir [lindex [r config get dir] 1]
 
             # Try to transfer some files, because max-replication-mb 1,
             # so maybe more than 5 files are transfered for sleep 5s
@@ -149,7 +156,7 @@ start_server {tags {"repl"} overrides {max-replication-mb 1 rocksdb.write_buffer
             # because slave already recieved some sst files, so we will skip them.
             restart_server -1 true false
             r -1 config set max-replication-mb 0
-            set dir [lindex [r config get dir] 1]
+
             wait_for_condition 50 1000 {
                 [log_file_matches $dir/kvrocks.INFO "*skip count: 1*"]
             } else {

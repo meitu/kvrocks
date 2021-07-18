@@ -275,6 +275,9 @@ int main(int argc, char* argv[]) {
   auto opts = parseCommandLineOptions(argc, argv);
   if (opts.show_usage) usage(argv[0]);
 
+  Redis::InitCommandsTable();
+  Redis::PopulateCommands();
+
   Config config;
   Status s = config.Load(opts.conf_file);
   if (!s.IsOK()) {

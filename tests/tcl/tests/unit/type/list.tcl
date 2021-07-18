@@ -622,6 +622,22 @@ start_server {
             assert_equal {} [trim_list $type 0 -6]
         }
 
+        test "LTRIM lrem elements after ltrim list - $type" {
+            create_list myotherlist "0 1 2 3 4 3 6 7 3 9"
+            assert_equal "OK" [r ltrim myotherlist 2 -3]
+            assert_equal "2 3 4 3 6 7" [r lrange myotherlist 0 -1]
+            assert_equal 2 [r lrem myotherlist 4 3]
+            assert_equal "2 4 6 7" [r lrange myotherlist 0 -1]
+        }
+
+        test "LTRIM linsert elements after ltrim list - $type" {
+            create_list myotherlist1 "0 1 2 3 4 3 6 7 3 9"
+            assert_equal "OK" [r ltrim myotherlist1 2 -3]
+            assert_equal "2 3 4 3 6 7" [r lrange myotherlist1 0 -1]
+            assert_equal -1 [r linsert myotherlist1 before 9 0]
+            assert_equal 7 [r linsert myotherlist1 before 4 0]
+            assert_equal "2 3 0 4 3 6 7" [r lrange myotherlist1 0 -1]
+        }
     }
 
     foreach {type large} [array get largevalue] {
@@ -678,6 +694,14 @@ start_server {
             create_list myotherlist "$e 1 2 3"
             assert_equal 1 [r lrem myotherlist 1 2]
             assert_equal 3 [r llen myotherlist]
+        }
+
+        test "LREM remove elements in repeating list - $type" {
+            create_list myotherlist1 "$e a b c d e f a f a f"
+            assert_equal 1 [r lrem myotherlist1 1 f]
+            assert_equal "$e a b c d e a f a f" [r lrange myotherlist1 0 -1]
+            assert_equal 2 [r lrem myotherlist1 0 f]
+            assert_equal "$e a b c d e a a" [r lrange myotherlist1 0 -1]
         }
     }
 

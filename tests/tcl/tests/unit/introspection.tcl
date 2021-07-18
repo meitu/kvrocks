@@ -48,4 +48,16 @@ start_server {tags {"introspection"}} {
             fail "Client still listed in CLIENT LIST after SETNAME."
         }
     }
+
+    test {DEBUG will freeze server} {
+        set rd [redis_deferring_client]
+        $rd DEBUG sleep 2.2
+        $rd flush
+        after 100
+
+        set start_time [clock seconds]
+        r set a b
+        set time_elapsed [expr {[clock seconds]-$start_time}]
+        assert {$time_elapsed >= 2}
+    }
 }

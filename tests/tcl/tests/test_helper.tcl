@@ -24,6 +24,8 @@ set ::all_tests {
     unit/type/set
     unit/type/zset
     unit/type/hash
+    unit/type/sint
+    unit/multi
     unit/expire
     unit/quit
     unit/slowlog
@@ -32,7 +34,9 @@ set ::all_tests {
     unit/limits
     unit/geo
     unit/command
+    unit/config
     integration/replication
+    integration/cluster
 }
 
 # Index to the next test to run in the ::all_tests list.

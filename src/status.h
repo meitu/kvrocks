@@ -26,6 +26,10 @@ class Status {
     RedisExecErr,
     RedisReplicationConflict,
 
+    // Cluster
+    ClusterDown,
+    ClusterInvalidInfo,
+
     // Network
     NetSendErr,
   };

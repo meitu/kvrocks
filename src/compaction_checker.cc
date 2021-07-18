@@ -7,23 +7,17 @@ void CompactionChecker::CompactPubsubFiles() {
   compact_opts.change_level = true;
   std::vector<std::string> cf_names = {Engine::kPubSubColumnFamilyName};
   for (const auto &cf_name : cf_names) {
-    // the db is closing, don't use DB and cf_handles
-    if (!storage_->IncrDBRefs().IsOK()) return;
     LOG(INFO) << "[compaction checker] Start the compact the column family: " << cf_name;
     auto cf_handle = storage_->GetCFHandle(cf_name);
     auto s = storage_->GetDB()->CompactRange(compact_opts, cf_handle, nullptr, nullptr);
-    storage_->DecrDBRefs();
     LOG(INFO) << "[compaction checker] Compact the column family: "<< cf_name <<" finished, result: " << s.ToString();
   }
 }
 
 void CompactionChecker::PickCompactionFiles(const std::string &cf_name) {
   rocksdb::TablePropertiesCollection props;
-  // the db is closing, don't use DB and cf_handles
-  if (!storage_->IncrDBRefs().IsOK()) return;
   rocksdb::ColumnFamilyHandle *cf = storage_->GetCFHandle(cf_name);
   auto s = storage_->GetDB()->GetPropertiesOfAllTables(cf, &props);
-  storage_->DecrDBRefs();
   if (!s.ok()) {
     LOG(WARNING) << "[compaction checker] Failed to get table properties, " << s.ToString();
     return;
@@ -78,11 +72,8 @@ void CompactionChecker::PickCompactionFiles(const std::string &cf_name) {
     if (start_key.empty() || stop_key.empty()) continue;
     // pick the file which was created more than 2 days
     if (file_creation_time < static_cast<uint64_t>(now-forceCompactSeconds)) {
-      // the db is closing, don't use DB and cf_handles
-      if (!storage_->IncrDBRefs().IsOK()) return;
       LOG(INFO) << "[compaction checker] Going to compact the key in file(created more than 2 days): " << iter.first;
       auto s = storage_->Compact(&start_key, &stop_key);
-      storage_->DecrDBRefs();
       LOG(INFO) << "[compaction checker] Compact the key in file(created more than 2 days): " << iter.first
                 << " finished, result: " << s.ToString();
       maxFilesToCompact--;
@@ -97,11 +88,8 @@ void CompactionChecker::PickCompactionFiles(const std::string &cf_name) {
     }
   }
   if (best_delete_ratio > 0.1 && !best_start_key.empty() && !best_stop_key.empty()) {
-    // the db is closing, don't use DB and cf_handles
-    if (!storage_->IncrDBRefs().IsOK()) return;
     LOG(INFO) << "[compaction checker] Going to compact the key in file: " << best_filename
               << ", delete ratio: " << best_delete_ratio;
     storage_->Compact(&best_start_key, &best_stop_key);
-    storage_->DecrDBRefs();
   }
 }

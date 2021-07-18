@@ -1,4 +1,5 @@
 #include "redis_metadata.h"
+#include "redis_slot.h"
 #include <time.h>
 #include <stdlib.h>
 #include <sys/time.h>
@@ -12,12 +13,16 @@ const int VersionCounterBits = 11;
 
 static std::atomic<uint64_t> version_counter_ = {0};
 
-InternalKey::InternalKey(Slice input) {
+InternalKey::InternalKey(Slice input, bool slot_id_encoded) {
+  slot_id_encoded_ = slot_id_encoded;
   uint32_t key_size;
   uint8_t namespace_size;
   GetFixed8(&input, &namespace_size);
   namespace_ = Slice(input.data(), namespace_size);
   input.remove_prefix(namespace_size);
+  if (slot_id_encoded_) {
+    GetFixed16(&input, &slotid_);
+  }
   GetFixed32(&input, &key_size);
   key_ = Slice(input.data(), key_size);
   input.remove_prefix(key_size);
@@ -27,11 +32,15 @@ InternalKey::InternalKey(Slice input) {
   memset(prealloc_, '\0', sizeof(prealloc_));
 }
 
-InternalKey::InternalKey(Slice ns_key, Slice sub_key, uint64_t version) {
+InternalKey::InternalKey(Slice ns_key, Slice sub_key, uint64_t version, bool slot_id_encoded) {
+  slot_id_encoded_ = slot_id_encoded;
   uint8_t namespace_size;
   GetFixed8(&ns_key, &namespace_size);
   namespace_ = Slice(ns_key.data(), namespace_size);
   ns_key.remove_prefix(namespace_size);
+  if (slot_id_encoded_) {
+    GetFixed16(&ns_key, &slotid_);
+  }
   key_ = ns_key;
   sub_key_ = sub_key;
   version_ = version;
@@ -63,6 +72,9 @@ void InternalKey::Encode(std::string *out) {
   out->clear();
   size_t pos = 0;
   size_t total = 1+namespace_.size()+4+key_.size()+8+sub_key_.size();
+  if (slot_id_encoded_) {
+    total += 2;
+  }
   if (total < sizeof(prealloc_)) {
     buf_ = prealloc_;
   } else {
@@ -72,6 +84,10 @@ void InternalKey::Encode(std::string *out) {
   pos += 1;
   memcpy(buf_+pos, namespace_.data(), namespace_.size());
   pos += namespace_.size();
+  if (slot_id_encoded_) {
+    EncodeFixed16(buf_+pos, slotid_);
+    pos += 2;
+  }
   EncodeFixed32(buf_+pos, static_cast<uint32_t>(key_.size()));
   pos += 4;
   memcpy(buf_+pos, key_.data(), key_.size());
@@ -89,18 +105,32 @@ bool InternalKey::operator==(const InternalKey &that) const {
   return version_ == that.version_;
 }
 
-void ExtractNamespaceKey(Slice ns_key, std::string *ns, std::string *key) {
+void ExtractNamespaceKey(Slice ns_key, std::string *ns, std::string *key, bool slot_id_encoded) {
   uint8_t namespace_size;
   GetFixed8(&ns_key, &namespace_size);
+
   *ns = ns_key.ToString().substr(0, namespace_size);
   ns_key.remove_prefix(namespace_size);
+
+  if (slot_id_encoded) {
+    uint16_t slot_id;
+    GetFixed16(&ns_key, &slot_id);
+  }
+
   *key = ns_key.ToString();
 }
 
-void ComposeNamespaceKey(const Slice& ns, const Slice& key, std::string *ns_key) {
+void ComposeNamespaceKey(const Slice& ns, const Slice& key, std::string *ns_key, bool slot_id_encoded) {
   ns_key->clear();
+
   PutFixed8(ns_key, static_cast<uint8_t>(ns.size()));
   ns_key->append(ns.ToString());
+
+  if (slot_id_encoded) {
+    auto slot_id = GetSlotNumFromKey(key.ToString());
+    PutFixed16(ns_key, slot_id);
+  }
+
   ns_key->append(key.ToString());
 }
 

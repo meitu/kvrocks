@@ -24,6 +24,17 @@ start_server {tags {"zset"}} {
             assert_equal {y x z} [r zrange ztmp 0 -1]
         }
 
+        test "ZSET basic ZADD the same member with different scores - $encoding" {
+            r del ztmp
+            assert_equal 1 [r zadd ztmp 10 x 20 x]
+            assert_equal {x} [r zrange ztmp 0 -1]
+            assert_equal 20 [r zscore ztmp x]
+
+            assert_equal 2 [r zadd ztmp 30 x 40 y 50 z]
+            assert_equal {x y z} [r zrange ztmp 0 -1]
+            assert_equal 30 [r zscore ztmp x]
+        }
+
         test "ZSET element can't be set to NaN with ZADD - $encoding" {
             assert_error "*float*" {r zadd myzset nan abc}
         }

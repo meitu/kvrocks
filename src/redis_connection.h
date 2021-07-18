@@ -20,6 +20,7 @@ class Connection {
     kMonitor         = 1 << 5,
     kCloseAfterReply = 1 << 6,
     kCloseAsync      = 1 << 7,
+    kMultiExec       = 1 << 8,
   };
 
   explicit Connection(bufferevent *bev, Worker *owner);
@@ -49,6 +50,7 @@ class Connection {
   void SetLastInteraction();
   std::string GetFlags();
   void EnableFlag(Flag flag);
+  void DisableFlag(Flag flag);
   bool IsFlagEnabled(Flag flag);
   bool IsRepl();
 
@@ -79,6 +81,16 @@ class Connection {
   evbuffer *Input() { return bufferevent_get_input(bev_); }
   evbuffer *Output() { return bufferevent_get_output(bev_); }
   bufferevent *GetBufferEvent() { return bev_; }
+  void ExecuteCommands(const std::vector<Redis::CommandTokens> &to_process_cmds);
+  bool isProfilingEnabled(const std::string &cmd);
+  void recordProfilingSampleIfNeed(const std::string &cmd, uint64_t duration);
+
+  // Multi exec
+  void SetInExec() { in_exec_ = true; }
+  bool IsInExec() { return in_exec_; }
+  bool IsMultiError() { return multi_error_; }
+  void ResetMultiExec();
+  const std::vector<Redis::CommandTokens> &GetMultiExecCommands() { return multi_cmds_; }
 
   std::unique_ptr<Commander> current_cmd_;
 
@@ -102,5 +114,10 @@ class Connection {
   Worker *owner_;
   std::vector<std::string> subscribe_channels_;
   std::vector<std::string> subcribe_patterns_;
+
+  Server *svr_;
+  bool in_exec_ = false;
+  bool multi_error_ = false;
+  std::vector<Redis::CommandTokens> multi_cmds_;
 };
 }  // namespace Redis

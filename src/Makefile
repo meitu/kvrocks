@@ -31,16 +31,16 @@ FINAL_CXXFLAGS+= -I$(JEMALLOC_PATH)/include \
 				  -I.
 FINAL_LIBS+= $(GLOG) $(LIBEVENT) $(LIBEVENT_PTHREADS) $(JEMALLOC) $(ROCKSDB)
 
-SHARED_OBJS= compact_filter.o config.o cron.o encoding.o event_listener.o lock_manager.o \
+SHARED_OBJS= cluster.o compact_filter.o config.o cron.o encoding.o event_listener.o lock_manager.o \
 			   log_collector.o redis_bitmap.o redis_bitmap_string.o redis_cmd.o redis_connection.o redis_db.o \
-			   redis_hash.o redis_list.o redis_metadata.o redis_pubsub.o redis_reply.o \
+			   redis_hash.o redis_list.o redis_metadata.o redis_slot.o redis_pubsub.o redis_reply.o \
 			   redis_request.o redis_set.o redis_string.o redis_zset.o redis_geo.o replication.o \
 			   server.o stats.o storage.o task_runner.o util.o geohash.o worker.o redis_sortedint.o \
 			   compaction_checker.o table_properties_collector.o
 KVROCKS_OBJS= $(SHARED_OBJS) main.o
 
 UNITTEST_OBJS= $(SHARED_OBJS) ../tests/main.o ../tests/t_metadata_test.o ../tests/compact_test.o \
-			   ../tests/config_test.o ../tests/cron_test.o ../tests/log_collector_test.o \
+			   ../tests/config_test.o ../tests/cron_test.o ../tests/log_collector_test.o ../tests/cluster_test.o \
 			   ../tests/rwlock_test.o ../tests/string_reply_test.o ../tests/string_util_test.o ../tests/t_bitmap_test.o \
 			   ../tests/t_encoding_test.o ../tests/t_hash_test.o ../tests/t_list_test.o ../tests/t_set_test.o \
 			   ../tests/task_runner_test.o  ../tests/t_string_test.o ../tests/t_zset_test.o ../tests/t_geo_test.o \
@@ -50,8 +50,6 @@ K2RDIR= ../tools/kvrocks2redis
 KVROCKS2REDIS_OBJS= $(SHARED_OBJS) $(K2RDIR)/main.o $(K2RDIR)/config.o $(K2RDIR)/parser.o \
 					$(K2RDIR)/redis_writer.o $(K2RDIR)/sync.o $(K2RDIR)/util.o $(K2RDIR)/writer.o
 
-KVROCKSRESTOREDIR= ../tools/kvrocksrestore
-KVROCKSRESTORE_OBJS= $(KVROCKSRESTOREDIR)/main.o
 
 KVROCKS_CXX=$(QUIET_CXX)$(CXX) $(FINAL_CXXFLAGS)
 KVROCKS_LD=$(QUIET_LINK)$(CXX) $(FINAL_CXXFLAGS)
@@ -72,7 +70,7 @@ endif
 
 PROG=kvrocks
 
-all: $(PROG) kvrocks2redis kvrocksrestore
+all: $(PROG) kvrocks2redis
 	@echo ""
 	@printf $(MAKECOLOR)"Hint: It's a good idea to run 'make test' ;)"$(ENDCOLOR)
 	@echo ""
@@ -115,9 +113,6 @@ $(JEMALLOC):
 kvrocks2redis: $(PROG) $(KVROCKS2REDIS_OBJS)
 	$(KVROCKS_LD) -o kvrocks2redis $(KVROCKS2REDIS_OBJS) $(FINAL_LIBS) $(LDFLAGS)
 
-kvrocksrestore: $(PROG) $(KVROCKSRESTORE_OBJS)
-	$(KVROCKS_LD) -o kvrocksrestore $(KVROCKSRESTORE_OBJS) $(FINAL_LIBS) $(LDFLAGS)
-
 unittest: $(UNITTEST_OBJS)
 	$(KVROCKS_LD) -o unittest $(UNITTEST_OBJS) $(FINAL_LIBS) $(LDFLAGS) -lgtest
 
@@ -131,7 +126,6 @@ clean:
 	- rm -rf *.o $(PROG) Makefile.dep make_config.mk
 	- rm -rf ../tests/*.o unittest
 	- rm -rf $(K2RDIR)/*.o kvrocks2redis
-	- rm -rf $(KVROCKSRESTORE_DIR)/*.o kvrocksrestore
 
 distclean: clean
 	- make -C $(ROCKSDB_PATH)/ clean

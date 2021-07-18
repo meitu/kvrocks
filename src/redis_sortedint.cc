@@ -29,7 +29,7 @@ rocksdb::Status Sortedint::Add(const Slice &user_key, std::vector<uint64_t> ids,
   for (const auto id : ids) {
     std::string id_buf;
     PutFixed64(&id_buf, id);
-    InternalKey(ns_key, id_buf, metadata.version).Encode(&sub_key);
+    InternalKey(ns_key, id_buf, metadata.version, storage_->IsSlotIdEncoded()).Encode(&sub_key);
     s = db_->Get(rocksdb::ReadOptions(), sub_key, &value);
     if (s.ok()) continue;
     batch.Put(sub_key, Slice());
@@ -62,7 +62,7 @@ rocksdb::Status Sortedint::Remove(const Slice &user_key, std::vector<uint64_t> i
   for (const auto id : ids) {
     std::string id_buf;
     PutFixed64(&id_buf, id);
-    InternalKey(ns_key, id_buf, metadata.version).Encode(&sub_key);
+    InternalKey(ns_key, id_buf, metadata.version, storage_->IsSlotIdEncoded()).Encode(&sub_key);
     s = db_->Get(rocksdb::ReadOptions(), sub_key, &value);
     if (!s.ok()) continue;
     batch.Delete(sub_key);
@@ -109,8 +109,8 @@ rocksdb::Status Sortedint::Range(const Slice &user_key,
     start_id = std::numeric_limits<uint64_t>::max();
   }
   PutFixed64(&start_buf, start_id);
-  InternalKey(ns_key, start_buf, metadata.version).Encode(&start_key);
-  InternalKey(ns_key, "", metadata.version).Encode(&prefix);
+  InternalKey(ns_key, start_buf, metadata.version, storage_->IsSlotIdEncoded()).Encode(&start_key);
+  InternalKey(ns_key, "", metadata.version, storage_->IsSlotIdEncoded()).Encode(&prefix);
   rocksdb::ReadOptions read_options;
   LatestSnapShot ss(db_);
   read_options.snapshot = ss.GetSnapShot();
@@ -120,7 +120,7 @@ rocksdb::Status Sortedint::Range(const Slice &user_key,
   for (!reversed ? iter->Seek(start_key) : iter->SeekForPrev(start_key);
        iter->Valid() && iter->key().starts_with(prefix);
        !reversed ? iter->Next() : iter->Prev()) {
-    InternalKey ikey(iter->key());
+    InternalKey ikey(iter->key(), storage_->IsSlotIdEncoded());
     Slice sub_key = ikey.GetSubKey();
     GetFixed64(&sub_key, &id);
     if ( id == cursor_id || pos++ < offset ) continue;
@@ -147,8 +147,8 @@ rocksdb::Status Sortedint::RangeByValue(const Slice &user_key,
 
   std::string start_buf, start_key, prefix_key;
   PutFixed64(&start_buf, spec.reversed ? spec.max : spec.min);
-  InternalKey(ns_key, start_buf, metadata.version).Encode(&start_key);
-  InternalKey(ns_key, "", metadata.version).Encode(&prefix_key);
+  InternalKey(ns_key, start_buf, metadata.version, storage_->IsSlotIdEncoded()).Encode(&start_key);
+  InternalKey(ns_key, "", metadata.version, storage_->IsSlotIdEncoded()).Encode(&prefix_key);
 
   rocksdb::ReadOptions read_options;
   LatestSnapShot ss(db_);
@@ -172,7 +172,7 @@ rocksdb::Status Sortedint::RangeByValue(const Slice &user_key,
   for (;
       iter->Valid() && iter->key().starts_with(prefix_key);
       !spec.reversed ? iter->Next() : iter->Prev()) {
-    InternalKey ikey(iter->key());
+    InternalKey ikey(iter->key(), storage_->IsSlotIdEncoded());
     Slice sub_key = ikey.GetSubKey();
     GetFixed64(&sub_key, &id);
     if (spec.reversed) {
@@ -206,7 +206,7 @@ rocksdb::Status Sortedint::MExist(const Slice &user_key, std::vector<uint64_t> i
   for (const auto id : ids) {
     std::string id_buf;
     PutFixed64(&id_buf, id);
-    InternalKey(ns_key, id_buf, metadata.version).Encode(&sub_key);
+    InternalKey(ns_key, id_buf, metadata.version, storage_->IsSlotIdEncoded()).Encode(&sub_key);
     s = db_->Get(read_options, sub_key, &value);
     if (!s.ok() && !s.IsNotFound()) return s;
     if (s.IsNotFound()) {

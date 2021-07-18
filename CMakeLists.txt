@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.10)
 project(kvrocks
-        VERSION 2.0.1
+        VERSION 2.0.2
         DESCRIPTION "NoSQL which based on rocksdb and compatible with the Redis protocol"
         LANGUAGES CXX)
 
@@ -50,6 +50,9 @@ configure_file(src/version.h.in ${PROJECT_BINARY_DIR}/version.h)
 if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     set(CMAKE_EXE_LINKER_FLAGS "-static-libgcc -static-libstdc++")
 endif()
+
+find_library(UNWIND_LIB unwind)
+
 add_executable(kvrocks )
 target_compile_features(kvrocks PRIVATE cxx_std_11)
 target_compile_options(kvrocks PRIVATE -Wall -Wpedantic -g -Wsign-compare -Wreturn-type -fno-omit-frame-pointer -O0)
@@ -70,7 +73,12 @@ if(CMAKE_THREAD_LIBS_INIT)
 endif()
 target_link_libraries(kvrocks PRIVATE -fno-omit-frame-pointer)
 target_link_libraries(kvrocks ${EXTERNAL_LIBS})
+if(UNWIND_LIB)
+    target_link_libraries(kvrocks PRIVATE -lunwind)
+endif()
 target_sources(kvrocks PRIVATE
+        src/cluster.cc
+        src/cluster.h
         src/redis_db.cc
         src/redis_db.h
         src/redis_connection.cc
@@ -99,6 +107,8 @@ target_sources(kvrocks PRIVATE
         src/task_runner.h
         src/encoding.h
         src/encoding.cc
+        src/redis_slot.h
+        src/redis_slot.cc
         src/redis_metadata.h
         src/redis_metadata.cc
         src/redis_string.h
@@ -154,6 +164,9 @@ endif()
 add_dependencies(kvrocks2redis libevent glog rocksdb)
 target_include_directories(kvrocks2redis PRIVATE ${PROJECT_BINARY_DIR})
 target_include_directories(kvrocks2redis ${EXTERNAL_INCS})
+if(UNWIND_LIB)
+    target_link_libraries(kvrocks2redis PRIVATE -lunwind)
+endif()
 
 find_package(Threads REQUIRED)
 if(THREADS_HAVE_PTHREAD_ARG)
@@ -164,6 +177,8 @@ if(CMAKE_THREAD_LIBS_INIT)
 endif()
 target_link_libraries(kvrocks2redis ${EXTERNAL_LIBS})
 target_sources(kvrocks2redis PRIVATE
+        src/cluster.h
+        src/cluster.cc
         src/redis_db.cc
         src/redis_db.h
         src/compact_filter.cc
@@ -189,6 +204,8 @@ target_sources(kvrocks2redis PRIVATE
         src/task_runner.h
         src/encoding.h
         src/encoding.cc
+        src/redis_slot.h
+        src/redis_slot.cc
         src/redis_metadata.h
         src/redis_metadata.cc
         src/redis_string.h
@@ -246,35 +263,17 @@ target_sources(kvrocks2redis PRIVATE
         tools/kvrocks2redis/parser.cc
         tools/kvrocks2redis/parser.h)
 
-# kvrocksrestore restore backup tool
-add_executable(kvrocksrestore)
-target_compile_features(kvrocksrestore PRIVATE cxx_std_11)
-target_compile_options(kvrocksrestore PRIVATE -Wall -Wpedantic -g -Wsign-compare -Wreturn-type)
-option(ENABLE_ASAN "enable ASAN santinizer" OFF)
-if(ENBALE_ASAN)
-    target_compile_options(kvrocksrestore PRIVATE -fno-omit-frame-pointer -fsanitize=address)
-    target_link_libraries(kvrocksrestore PRIVATE -fno-omit-frame-pointer -fsanitize=address)
-endif()
-add_dependencies(kvrocksrestore glog rocksdb)
-target_include_directories(kvrocksrestore PRIVATE ${PROJECT_BINARY_DIR})
-target_include_directories(kvrocksrestore ${EXTERNAL_INCS})
-
-set(THREADS_PREFER_PTHREAD_FLAG ON)
-find_package(Threads REQUIRED)
-if(CMAKE_THREAD_LIBS_INIT)
-    target_link_libraries(kvrocksrestore PUBLIC "${CMAKE_THREAD_LIBS_INIT}")
-endif()
-target_link_libraries(kvrocksrestore ${EXTERNAL_LIBS})
-target_sources(kvrocksrestore PRIVATE
-        tools/kvrocksrestore/main.cc)
-
 add_executable(unittest
+        src/cluster.h
+        src/cluster.cc
         src/server.cc
         src/server.h
         src/config.cc
         src/config.h
         src/worker.cc
         src/worker.h
+        src/redis_slot.cc
+        src/redis_slot.h
         src/redis_connection.cc
         src/redis_connection.h
         src/redis_pubsub.cc
@@ -329,6 +328,7 @@ add_executable(unittest
         tests/t_zset_test.cc
         tests/t_geo_test.cc
         tests/t_metadata_test.cc
+        tests/cluster_test.cc
         tests/string_reply_test.cc
         tests/string_util_test.cc
         tests/rwlock_test.cc
@@ -343,6 +343,9 @@ add_dependencies(unittest glog rocksdb snappy jemalloc)
 target_compile_features(unittest PRIVATE cxx_std_11)
 message(${snappy_LIBRARIES})
 target_link_libraries(unittest PRIVATE ${EXTERNAL_LIBS} -lgtest)
+if(UNWIND_LIB)
+    target_link_libraries(unittest PRIVATE -lunwind)
+endif()
 target_include_directories(unittest PRIVATE ${PROJECT_BINARY_DIR})
 target_include_directories(unittest ${EXTERNAL_INCS})
 target_include_directories(unittest PRIVATE src)

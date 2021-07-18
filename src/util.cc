@@ -5,6 +5,7 @@
 #include <sys/uio.h>
 #include <netinet/tcp.h>
 #include <sys/socket.h>
+#include <netdb.h>
 #include <poll.h>
 #include <errno.h>
 #include <pthread.h>
@@ -38,29 +39,43 @@
 #define AE_HUP 8
 
 namespace Util {
-sockaddr_in NewSockaddrInet(const std::string &host, uint32_t port) {
-  sockaddr_in sin{};
-  sin.sin_family = AF_INET;
-  sin.sin_addr.s_addr = inet_addr(host.c_str());
-  sin.sin_port = htons(port);
-  return sin;
-}
-
 Status SockConnect(std::string host, uint32_t port, int *fd) {
-  sockaddr_in sin{};
-  sin.sin_family = AF_INET;
-  sin.sin_addr.s_addr = inet_addr(host.c_str());
-  sin.sin_port = htons(port);
-  *fd = socket(AF_INET, SOCK_STREAM, 0);
-  auto rv = connect(*fd, reinterpret_cast<sockaddr *>(&sin), sizeof(sin));
-  if (rv < 0) {
-    close(*fd);
-    *fd = -1;
-    return Status(Status::NotOK, strerror(errno));
+  int rv, cfd;
+  char portstr[6];  /* strlen("65535") + 1; */
+  addrinfo hints, *servinfo, *p;
+
+  snprintf(portstr, sizeof(portstr), "%u", port);
+  memset(&hints, 0, sizeof(hints));
+  hints.ai_family = AF_UNSPEC;
+  hints.ai_socktype = SOCK_STREAM;
+
+  if ((rv = getaddrinfo(host.c_str(), portstr, &hints, &servinfo)) != 0) {
+    return Status(Status::NotOK, gai_strerror(rv));
   }
-  setsockopt(*fd, SOL_SOCKET, SO_KEEPALIVE, nullptr, 0);
-  setsockopt(*fd, IPPROTO_TCP, TCP_NODELAY, nullptr, 0);
-  return Status::OK();
+
+  for (p = servinfo; p != nullptr ; p = p->ai_next) {
+    if ((cfd = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1)
+      continue;
+    if (connect(cfd, p->ai_addr, p->ai_addrlen) == -1) {
+      close(cfd);
+      continue;
+    }
+    Status s = SockSetTcpKeepalive(cfd, 120);
+    if (s.IsOK()) {
+      s = SockSetTcpNoDelay(cfd, 1);
+    }
+    if (!s.IsOK()) {
+      close(cfd);
+      continue;
+    }
+
+    *fd = cfd;
+    freeaddrinfo(servinfo);
+    return Status::OK();
+  }
+
+  freeaddrinfo(servinfo);
+  return Status(Status::NotOK, strerror(errno));
 }
 
 const std::string Float2String(double d) {

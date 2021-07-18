@@ -13,19 +13,27 @@
 namespace Engine {
 class MetadataFilter : public rocksdb::CompactionFilter {
  public:
+  explicit MetadataFilter(Storage *storage): stor_(storage) {}
   const char *Name() const override { return "MetadataFilter"; }
   bool Filter(int level, const Slice &key, const Slice &value,
               std::string *new_value, bool *modified) const override;
+ private:
+  Engine::Storage *stor_;
 };
 
 class MetadataFilterFactory : public rocksdb::CompactionFilterFactory {
  public:
-  MetadataFilterFactory() = default;
+  explicit MetadataFilterFactory(Engine::Storage *storage) {
+    stor_ = storage;
+  }
   const char *Name() const override { return "MetadataFilterFactory"; }
   std::unique_ptr<rocksdb::CompactionFilter> CreateCompactionFilter(
       const rocksdb::CompactionFilter::Context &context) override {
-    return std::unique_ptr<rocksdb::CompactionFilter>(new MetadataFilter());
+    return std::unique_ptr<rocksdb::CompactionFilter>(new MetadataFilter(stor_));
   }
+
+ private:
+  Engine::Storage *stor_ = nullptr;
 };
 
 class SubKeyFilter : public rocksdb::CompactionFilter {
